@@ -1,0 +1,45 @@
+{
+    "name": "@exposr/ws-multiplex",
+    "description": "Websocket channel multiplexer",
+    "version": "1.0.0",
+    "author": "Fredrik Lindberg <fli@fli.dev>",
+    "license": "MIT",
+    "type": "commonjs",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "engines": {
+        "node": ">=18"
+    },
+    "files": [
+        "LICENSE",
+        "dist",
+        "src"
+    ],
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/exposr/ws-multiplex-ts.git"
+    },
+    "dependencies": {
+        "bufferutil": "^4.0.7",
+        "ws": "^8.13.0"
+    },
+    "devDependencies": {
+        "@types/chai": "^4.3.5",
+        "@types/mocha": "^10.0.1",
+        "@types/node": "^20.4.5",
+        "@types/sinon": "^10.0.15",
+        "@types/ws": "^8.5.5",
+        "chai": "^4.3.7",
+        "mocha": "^10.2.0",
+        "sinon": "^15.2.0",
+        "ts-node": "^10.9.1",
+        "typescript": "^5.1.6"
+    },
+    "scripts": {
+        "clean": "rm -fr dist",
+        "prebuild": "yarn run clean",
+        "build": "tsc",
+        "prepack": "yarn run build",
+        "test": "mocha"
+    }
+}
