@@ -33,6 +33,7 @@ export class WebSocketMultiplexSocket extends Duplex {
     private dstChannel?: number;
     private onDataListener?: (name: string) => void;
     private onPipeListener?: (name: string) => void;
+    private openBuffer: Array<{data: Array<Buffer>, cb: (err?: Error) => void}> = [];
 
     public connecting: boolean;
     public pending: boolean;
@@ -103,6 +104,12 @@ export class WebSocketMultiplexSocket extends Duplex {
             this.on('newListener', this.onDataListener);
         }
 
+        for (let i = 0; i < this.openBuffer.length; i++) {
+            const {data, cb} = this.openBuffer[i];
+            this.WSM.send(<number>this.channel, data, cb);
+        }
+        this.openBuffer = [];
+
         this.emit('connect');
         this.emit('ready');
     }
@@ -142,6 +149,8 @@ export class WebSocketMultiplexSocket extends Duplex {
     public connect(path: string, connectionListener?: (() => void) | undefined): this;
     public connect(port: unknown, host?: unknown, connectionListener?: unknown): this {
         const options = typeof port == 'object' ? (port as WebSocketMultiplexSocketOptions) : {};
+
+        this.openBuffer = [];
 
         this.state = WebSocketMultiplexSocketState.CONNECTING;
         this.readyState = "opening";
@@ -259,27 +268,28 @@ export class WebSocketMultiplexSocket extends Duplex {
         return this;
     }
 
-    public cork(): void {
-        super.cork();
-    }
-
-    public uncork(): void {
-        super.uncork();
+    private wsmWrite(data: Buffer | Array<Buffer>, cb: (error?: Error) => void): boolean {
+        if (this.readyState == "opening") {
+            if (data instanceof Buffer) {
+                data = [data];
+            }
+            this.openBuffer.push({data, cb});
+            return true;
+        } else {
+            return this.WSM.send(<number>this.channel, data, cb);
+        }
     }
 
     _write(data: Buffer, encoding: BufferEncoding, callback: (error?: Error) => void): void {
-        this.WSM.send(<number>this.channel, data, callback);
+        this.wsmWrite(data, callback);
     }
 
     _writev(chunks: Array<{ chunk: any; encoding: BufferEncoding; }>, callback: (error?: Error) => void): void {
-        for (const {chunk, encoding} of chunks) {
-            this._write(chunk, encoding, (err?: Error) => {
-                if (err) {
-                    return callback(err);
-                }
-            });
+        const buffers: Array<Buffer> = [];
+        for (const item of chunks) {
+            buffers.push(item.chunk)
         }
-        return callback();
+        this.wsmWrite(buffers, callback);
     }
 
     _read(size: number): void {

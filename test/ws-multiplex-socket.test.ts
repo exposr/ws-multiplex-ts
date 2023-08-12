@@ -428,6 +428,26 @@ describe('ws-multiplex-socket', () => {
         assert(sock2.bytesWritten == 0);
     });
 
+    it(`write during opening is buffered`, async () => {
+        const listener = new Promise((resolve: (sock: WebSocketMultiplexSocket) => void) => {
+            wsm2.once('connection', (sock) => {
+                resolve(sock);
+            });
+        });
+
+        const sock = wsm1.createConnection({}, () => {});
+        assert(sock.readyState == 'opening');
+        sock.write(Buffer.from("hello"));
+
+        const sock2 = await listener;
+        const dataEvent2: Promise<Buffer> = new Promise((resolve) => {
+            sock2.once('data', resolve);
+        });
+        const data = await dataEvent2;
+        assert(data.equals(Buffer.from("hello")));
+
+    });
+
     describe(`complex use cases`, () => {
         const createEchoHttpServer = async (port = 20000) => {
             const requestHandler = (request: http.IncomingMessage, response: http.ServerResponse) => {
