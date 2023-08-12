@@ -302,7 +302,7 @@ export class WebSocketMultiplex extends EventEmitter {
      * @param callback Completion callback
      * @returns Boolean true if the transmission was successfully started, otherwise false
      */
-    public send(channel: number, data: Buffer, callback?: (err?: Error) => void): boolean {
+    public send(channel: number, data: Buffer | Array<Buffer>, callback?: (err?: Error) => void): boolean {
         const context = this.openChannels[channel];
         if (!context || context.dstChannel == 0) {
             const err = new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WSM_CHANNEL_NOT_OPEN);
@@ -423,17 +423,27 @@ export class WebSocketMultiplex extends EventEmitter {
         }
     }
 
-    private static encodeHeader(type: WSMMessageType, destChannel: number, sourceChannel: number, data?: Buffer): Buffer {
+    private static encodeHeader(type: WSMMessageType, destChannel: number, sourceChannel: number, data?: Buffer | Array<Buffer>): Buffer {
+
+        let dataLength: number = 0;
+        if (data instanceof Array) {
+            for (let i = 0; i < data.length; i++) {
+                dataLength += data[i].length;
+            }
+        } else if (data != undefined) {
+            dataLength = data.length;
+        }
+
         const header = Buffer.allocUnsafe(16);
         header.writeUInt16BE(WSMVersion.VERSION_2, 0)
         header.writeUInt16BE(type, 2);
         header.writeUInt32BE(destChannel, 4);
         header.writeUInt32BE(sourceChannel, 8);
-        header.writeUInt32BE(data !== undefined ? data.length : 0, 12);
+        header.writeUInt32BE(dataLength, 12);
         return header;
     }
 
-    private sendMessage(type: WSMMessageType, destChannel: number, sourceChannel: number, data?: Buffer, callback?: (err?: Error) => void): boolean {
+    private sendMessage(type: WSMMessageType, destChannel: number, sourceChannel: number, data?: Buffer | Array<Buffer>, callback?: (err?: Error) => void): boolean {
         if (this.closed) {
             typeof callback == 'function' &&
                 callback(new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WS_SOCKED_CLOSED));
@@ -451,11 +461,22 @@ export class WebSocketMultiplex extends EventEmitter {
             });
 
             if (data != undefined) {
-                this.socket.send(data, {
+                if (data instanceof Buffer) {
+                    data = [data];
+                }
+
+                for (let i = 0; i < (data.length - 1); i++) {
+                    this.socket.send(data[i], {
+                        binary: true,
+                        compress: false,
+                        fin: false,
+                    })
+                }
+                this.socket.send(data[data.length - 1], {
                     binary: true,
                     compress: false,
-                    fin: true,
-                }, callback)
+                    fin: true
+                }, callback);
             } else {
                 typeof callback == 'function' && callback();
             }

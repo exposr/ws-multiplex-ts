@@ -1026,6 +1026,43 @@ describe('ws-multiplex', () => {
             assert(data.equals(Buffer.from("second")));
         });
 
+        it(`send accepts array of two buffers`, async () => {
+            const open = getOpen();
+            const data = getData();
+
+            const [channel, err] = wsm1.open({}, onOpen, onClose, onError, onData, onFlow);
+            assert(typeof channel == 'number');
+            assert(err == undefined);
+            const dstChannel = await open;
+
+            const raw = socketPair.getMessageSock1();
+
+            const res = wsm2.send(dstChannel, [Buffer.from("hello"), Buffer.from("world")]);
+            assert(res == true);
+
+            const msg = await data;
+            assert(msg.equals(Buffer.from("helloworld")));
+
+            const [rawMsg, msgErr] = await raw;
+            assert(rawMsg.header.length == 10);
+        });
+
+        it(`send accepts array of more buffers`, async () => {
+            const open = getOpen();
+            const data = getData();
+
+            const [channel, err] = wsm1.open({}, onOpen, onClose, onError, onData, onFlow);
+            assert(typeof channel == 'number');
+            assert(err == undefined);
+            const dstChannel = await open;
+
+            const res = wsm2.send(dstChannel, [Buffer.from("hello"), Buffer.from(" "), Buffer.from("world")]);
+            assert(res == true);
+
+            const msg = await data;
+            assert(msg.equals(Buffer.from("hello world")));
+        });
+
         it(`local and remote channel can be different`, async () => {
             const openChannel = async () => {
                 const open = getOpen();
