@@ -110,6 +110,8 @@ interface WSMChannelContext {
     onError: (err: Error) => void,
     onData: (data: Buffer) => void,
     onFlowControl: (stop: boolean) => void,
+    bytesWritten: number,
+    bytesRead: number,
     ackTimeout?: NodeJS.Timeout,
 }
 
@@ -119,6 +121,11 @@ interface OpenOptions {
      */
     timeout?: number,
     dstChannel?: number,
+}
+
+type ChannelInfo = {
+    bytesWritten?: number,
+    bytesRead?: number,
 }
 
 export interface WebSocketMultiplexOptions {
@@ -239,7 +246,9 @@ export class WebSocketMultiplex extends EventEmitter {
             onClose,
             onError,
             onData,
-            onFlowControl
+            onFlowControl,
+            bytesWritten: 0,
+            bytesRead: 0,
         };
 
         if (options.dstChannel == undefined) {
@@ -351,6 +360,22 @@ export class WebSocketMultiplex extends EventEmitter {
         return sock.connect(options, connectCallback);
     }
 
+    /**
+     * Returns channel info and statistics
+     *
+     * @returns ChannelInfo
+     */
+    public channelInfo(channel: number): ChannelInfo {
+        const context = this.openChannels[channel];
+        if (!context) {
+            return {};
+        }
+        return {
+            bytesWritten: context.bytesWritten,
+            bytesRead: context.bytesRead,
+        }
+    }
+
     private peerLastAlive(): number {
         return Number((process.hrtime.bigint() - this.lastPong) / BigInt(1000000));
     }
@@ -423,7 +448,7 @@ export class WebSocketMultiplex extends EventEmitter {
         }
     }
 
-    private static encodeHeader(type: WSMMessageType, destChannel: number, sourceChannel: number, data?: Buffer | Array<Buffer>): Buffer {
+    private static encodeHeader(type: WSMMessageType, destChannel: number, sourceChannel: number, data?: Buffer | Array<Buffer>): [Buffer, number] {
 
         let dataLength: number = 0;
         if (data instanceof Array) {
@@ -440,7 +465,7 @@ export class WebSocketMultiplex extends EventEmitter {
         header.writeUInt32BE(destChannel, 4);
         header.writeUInt32BE(sourceChannel, 8);
         header.writeUInt32BE(dataLength, 12);
-        return header;
+        return [header, dataLength];
     }
 
     private sendMessage(type: WSMMessageType, destChannel: number, sourceChannel: number, data?: Buffer | Array<Buffer>, callback?: (err?: Error) => void): boolean {
@@ -452,7 +477,7 @@ export class WebSocketMultiplex extends EventEmitter {
 
         assert(type === WSMMessageType.MESSAGE_OPEN ? destChannel == 0 : true, `OPEN with non-zero dst channel`);
 
-        const header = WebSocketMultiplex.encodeHeader(type, destChannel, sourceChannel, data);
+        const [header, dataLength] = WebSocketMultiplex.encodeHeader(type, destChannel, sourceChannel, data);
         try {
             this.socket.send(header, {
                 binary: true,
@@ -477,6 +502,10 @@ export class WebSocketMultiplex extends EventEmitter {
                     compress: false,
                     fin: true
                 }, callback);
+
+                if (type == WSMMessageType.MESSAGE_DATA) {
+                    this.openChannels[sourceChannel].bytesWritten += dataLength;
+                }
             } else {
                 typeof callback == 'function' && callback();
             }
@@ -649,6 +678,7 @@ export class WebSocketMultiplex extends EventEmitter {
             }
             return;
         }
+        context.bytesRead += WSMm.data.length;
         context.onData(WSMm.data);
     }
 

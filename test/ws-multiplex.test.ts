@@ -136,7 +136,7 @@ describe('ws-multiplex', () => {
 
         it(`header can be encoded`, () => {
             const data = Buffer.from([0x41, 0x41, 0x41, 0x41]);
-            const header = WebSocketMultiplex['encodeHeader'](1, 255, 1, data);
+            const [header, dataLength] = WebSocketMultiplex['encodeHeader'](1, 255, 1, data);
 
             const raw = Buffer.from([
                 0x00, 0x02, /* Version 2 */
@@ -147,10 +147,11 @@ describe('ws-multiplex', () => {
             ]);
 
             assert(header.equals(raw), `got ${header}`);
+            assert(dataLength == 4);
         });
 
         it(`header can be encoded with zero-length data`, () => {
-            const header = WebSocketMultiplex['encodeHeader'](1, 255, 1);
+            const [header, dataLength] = WebSocketMultiplex['encodeHeader'](1, 255, 1);
 
             const raw = Buffer.from([
                 0x00, 0x02, /* Version 2 */
@@ -161,11 +162,12 @@ describe('ws-multiplex', () => {
             ]);
 
             assert(header.equals(raw));
+            assert(dataLength == 0);
         });
 
         it(`message can be encoded and decoded`, () => {
             const data = Buffer.from([0x41, 0x41, 0x41, 0x41]);
-            const header = WebSocketMultiplex['encodeHeader'](1, 255, 1, data);
+            const [header, _] = WebSocketMultiplex['encodeHeader'](1, 255, 1, data);
             const raw = Buffer.concat([header, data]);
 
             const [msg, err] = WebSocketMultiplex['decodeMessage'](raw);
@@ -190,7 +192,7 @@ describe('ws-multiplex', () => {
             const [wsm1, wsm2] = wsmPair(socketPair);
 
             await new Promise((resolve, reject) => {
-                wsm1["sendMessage"](1, 1, 2, Buffer.from([0x41, 0x41]), (err) => {
+                wsm1["sendMessage"](4 /* CLOSE */, 1, 2, Buffer.from([0x41, 0x41]), (err) => {
                     err ? reject(err) : resolve(undefined);
                 });
             });
@@ -199,7 +201,7 @@ describe('ws-multiplex', () => {
             const [msg, err] = WebSocketMultiplex['decodeMessage'](raw);
             assert(err == undefined);
             assert(msg.header.version == 2);
-            assert(msg.header.type == 1);
+            assert(msg.header.type == 4);
             assert(msg.header.dstChannel == 1);
             assert(msg.header.srcChannel == 2);
             assert(msg.header.length == 2);
@@ -823,6 +825,9 @@ describe('ws-multiplex', () => {
             assert(err == undefined);
             const dstChannel = await open;
 
+            assert(wsm1.channelInfo(channel).bytesRead == 0, "bytesRead is not 0");
+            assert(wsm2.channelInfo(dstChannel).bytesWritten == 0, "bytesWritten is not 0");
+
             const res = await new Promise((resolve) => {
                 const res = wsm2.send(dstChannel, Buffer.from("hello"), (err) => {
                     resolve(err ? err : res);
@@ -833,6 +838,9 @@ describe('ws-multiplex', () => {
 
             const msg = await data;
             assert(msg.equals(Buffer.from("hello")));
+
+            assert(wsm1.channelInfo(channel).bytesRead == 5);
+            assert(wsm2.channelInfo(dstChannel).bytesWritten == 5);
         });
 
         it(`send on local closed channel returns error`, async () => {

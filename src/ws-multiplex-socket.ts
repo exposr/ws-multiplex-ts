@@ -38,8 +38,8 @@ export class WebSocketMultiplexSocket extends Duplex {
     public pending: boolean;
     public readyState: SocketReadyState;
     public destroyed: boolean;
-    public bytesWritten: number;
-    public bytesRead: number;
+    public bytesWritten?: number;
+    public bytesRead?: number;
     public bufferSize: number;
 
     constructor(WSM: WebSocketMultiplex) {
@@ -49,14 +49,24 @@ export class WebSocketMultiplexSocket extends Duplex {
 
         this.WSM = WSM;
         this.channel = 0;
-        this.bytesWritten = 0;
-        this.bytesRead = 0;
         this.bufferSize = 0;
         this.destroyed = false;
         this.connecting = false;
         this.pending = true;
         this.readyState = "closed";
         this.state = WebSocketMultiplexSocketState.PENDING;
+
+        Object.defineProperty(this, "bytesWritten", {
+            get() {
+                return this.WSM.channelInfo(this.channel)?.bytesWritten || 0;
+            }
+        });
+
+        Object.defineProperty(this, "bytesRead", {
+            get() {
+                return this.WSM.channelInfo(this.channel)?.bytesRead || 0;
+            }
+        });
     }
 
     private clearAutoResumeTriggers(): void {
@@ -215,7 +225,6 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     public push(chunk: Buffer, encoding?: BufferEncoding): boolean {
-        this.bytesRead += chunk.length;
         return super.push(chunk, encoding);
     }
 
@@ -259,7 +268,6 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     _write(data: Buffer, encoding: BufferEncoding, callback: (error?: Error) => void): void {
-        this.bytesWritten += data.length;
         this.WSM.send(<number>this.channel, data, callback);
     }
 

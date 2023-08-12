@@ -411,6 +411,23 @@ describe('ws-multiplex-socket', () => {
         assert(res == 'hello', "data not received after resume");
     });
 
+    it(`bytesWritten and bytesRead is updated when data is sent`, async () => {
+        const [sock1, sock2] = await connectPair();
+        assert(sock1.bytesWritten == 0);
+
+        const dataEvent: Promise<Buffer> = new Promise((resolve) => {
+            sock2.once('data', resolve);
+        });
+
+        sock1.write(Buffer.from("hello"));
+        await dataEvent;
+
+        assert(sock1.bytesWritten == <number>5);
+        assert(sock1.bytesRead == 0);
+        assert(sock2.bytesRead == <number>5);
+        assert(sock2.bytesWritten == 0);
+    });
+
     describe(`complex use cases`, () => {
         const createEchoHttpServer = async (port = 20000) => {
             const requestHandler = (request: http.IncomingMessage, response: http.ServerResponse) => {
