@@ -226,7 +226,6 @@ export class WebSocketMultiplexSocket extends Duplex {
             }
             this.readyState = "readOnly";
             this.state = WebSocketMultiplexSocketState.HALFOPEN;
-            this.WSM.close(this.channel);
             typeof callback === 'function' && callback();
         });
 

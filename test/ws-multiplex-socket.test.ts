@@ -448,6 +448,13 @@ describe('ws-multiplex-socket', () => {
 
     });
 
+    it(`calling end does not close channel`, async () => {
+        const [sock1, sock2] = await connectPair();
+
+        await new Promise((resolve) => { sock1.end(resolve)});
+        assert(sock1.readyState == 'readOnly');
+    });
+
     describe(`complex use cases`, () => {
         const createEchoHttpServer = async (port = 20000) => {
             const requestHandler = (request: http.IncomingMessage, response: http.ServerResponse) => {
