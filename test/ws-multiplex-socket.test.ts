@@ -6,7 +6,7 @@ import { WebSocketMultiplexSocket } from '../src/ws-multiplex-socket';
 import { WebSocketMultiplexError, WebSocketMultiplexErrorCode } from '../src/ws-multiplex-error';
 import * as http from 'node:http'
 import * as net from 'node:net';
-import { PassThrough } from 'node:stream';
+import { Duplex, PassThrough } from 'node:stream';
 
 describe('ws-multiplex-socket', () => {
     let clock: sinon.SinonFakeTimers;
@@ -51,7 +51,6 @@ describe('ws-multiplex-socket', () => {
         assert(sock.readyState == "closed");
         assert(sock.destroyed == false);
         assert(sock.connecting == false);
-        assert(sock["state"] == "PENDING");
     });
 
     it(`can connect a socket using createConnection`, async () => {
@@ -75,7 +74,6 @@ describe('ws-multiplex-socket', () => {
         assert(sock.pending == false);
         await readyEvent;
 
-        assert(sock["state"] == "PAUSED", `expected state PAUSED, got ${sock["state"]}`);
         assert(sock["channel"] == 1);
         assert(sock["dstChannel"] == 1);
     });
@@ -95,7 +93,7 @@ describe('ws-multiplex-socket', () => {
         await new Promise((resolve) => {
             sock.connect({}, () => { resolve(sock); })
         });
-        assert(sock["state"] == "PAUSED");
+        assert(sock.readyState == "open");
     });
 
     it(`connection request times out if there is no response`, async () => {
@@ -128,7 +126,6 @@ describe('ws-multiplex-socket', () => {
         assert(closeSpy.called, "close on wsm not called");
         assert(sock.destroyed == true);
         assert(sock.readyState == "closed");
-        assert(sock["state"] == "ENDED");
     });
 
     it(`connected socket can be destroyed by destroy()`, async () => {
@@ -150,7 +147,7 @@ describe('ws-multiplex-socket', () => {
 
         await closeEvent;
 
-        assert(emitSpy.secondCall.args[0] == "close", "close was not emitted at right order");
+        assert(emitSpy.firstCall.args[0] == "close", "close was not emitted at right order");
         assert(destroySpy.called, "_destroy on sock not called");
     });
 
@@ -305,29 +302,6 @@ describe('ws-multiplex-socket', () => {
         assert(data.equals(Buffer.from("hello2")));
     });
 
-    it(`socket is opened in paused state without data listener`, async () => {
-        const sock = new WebSocketMultiplexSocket(wsm1);
-        await new Promise((resolve) => { sock.connect({}, () => { resolve(undefined)}); })
-        assert(sock.isPaused());
-    });
-
-    it(`socket is opened in open state with a data listener`, async () => {
-        const sock = new WebSocketMultiplexSocket(wsm1);
-        sock.on('data', () => {});
-        await new Promise((resolve) => { sock.connect({}, () => { resolve(undefined)}); })
-        assert(!sock.isPaused());
-    });
-
-    it(`socket is resumed when pipe is added`, async () => {
-        const sock = new WebSocketMultiplexSocket(wsm1);
-        await new Promise((resolve) => { sock.connect({}, () => { resolve(undefined)}); })
-        assert(sock.isPaused());
-
-        const stream = new PassThrough();
-        stream.pipe(sock);
-        assert(!sock.isPaused());
-    });
-
     it(`can open multiple sockets`, async () => {
         const [sock1, sock2] = await connectPair();
         const [sock3, sock4] = await connectPair();
@@ -347,68 +321,6 @@ describe('ws-multiplex-socket', () => {
         const data3 = await dataEvent3;
         assert(data2.equals(Buffer.from("hello1")));
         assert(data3.equals(Buffer.from("hello4")));
-    });
-
-    it(`pausing/resuming socket corks/uncorks remote socket`, async () => {
-        const [sock1, sock2] = await connectPair();
-
-        const corkSpy = sinon.spy(sock2, "cork");
-        const uncorkSpy = sinon.spy(sock2, "uncork");
-
-        sock1.pause();
-        assert(sock1["state"] == "PAUSED");
-
-        for (let i = 0; corkSpy.callCount == 0 && i < 10; i++) {
-            await clock.tickAsync(1000);
-        }
-        assert(corkSpy.called, "cork not called on sock2");
-
-        sock1.resume();
-        assert(sock1["state"] == <any>"OPEN");
-        for (let i = 0; uncorkSpy.callCount == 0 && i < 10; i++) {
-            await clock.tickAsync(1000);
-        }
-        assert(uncorkSpy.called, "uncork not called on sock2");
-    });
-
-    it(`pausing open socket, pauses data stream`, async () => {
-        const [sock1, sock2] = await connectPair();
-        const uncorkSpy = sinon.spy(sock2, "uncork");
-        const corkSpy = sinon.spy(sock2, "cork");
-
-        sock1.resume();
-        assert(sock1["state"] == <any>"OPEN");
-        for (let i = 0; uncorkSpy.callCount == 0 && i < 10; i++) {
-            await clock.tickAsync(1000);
-        }
-        assert(uncorkSpy.called, "uncork not called on sock2");
-
-        const dataEvent: Promise<Buffer> = new Promise((resolve) => {
-            sock1.on('data', resolve);
-        });
-
-        sock1.pause();
-        assert(sock1["state"] == "PAUSED");
-        for (let i = 0; corkSpy.callCount == 0 && i < 10; i++) {
-            await clock.tickAsync(1000);
-        }
-        assert(corkSpy.called, "cork not called on sock2");
-
-        sock2.write(Buffer.from("hello"));
-
-        let res = await Promise.race([
-            dataEvent,
-            new Promise(async (resolve) => {
-                await clock.tickAsync(1000);
-                resolve("timeout");
-            })
-        ]);
-        assert(uncorkSpy.callCount == 1, "uncork called");
-        assert(res == "timeout", `expected timeout, got ${res}`);
-
-        sock1.resume();
-        res = await dataEvent;
-        assert(res == 'hello', "data not received after resume");
     });
 
     it(`bytesWritten and bytesRead is updated when data is sent`, async () => {
@@ -455,6 +367,29 @@ describe('ws-multiplex-socket', () => {
         assert(sock1.readyState == 'readOnly');
     });
 
+    it(`flow control is triggered when required on push and read`, async () => {
+        const [sock1, sock2] = await connectPair();
+
+        const corkSpy = sinon.spy(sock1, "cork");
+        const uncorkSpy = sinon.spy(sock1, "uncork");
+        const pushStub = sinon.stub(sock2, "push").returns(false);
+
+        sock1.write(Buffer.from("hello"));
+
+        for (let i = 0; corkSpy.callCount == 0 && i < 10; i++) {
+            await clock.tickAsync(1000);
+        }
+        assert(corkSpy.called == true, "false from push did not cork remote socket");
+
+        pushStub.restore();
+        sock2.read();
+
+        for (let i = 0; uncorkSpy.callCount == 0 && i < 10; i++) {
+            await clock.tickAsync(1000);
+        }
+        assert(uncorkSpy.called == true, "read did not uncork remote socket");
+    });
+
     describe(`complex use cases`, () => {
         const createEchoHttpServer = async (port = 20000) => {
             const requestHandler = (request: http.IncomingMessage, response: http.ServerResponse) => {
@@ -470,14 +405,15 @@ describe('ws-multiplex-socket', () => {
             const server = http.createServer(requestHandler);
             server.listen(port);
             return {
-                destroy: () => {
+                destroy: async () => {
                     server.removeAllListeners('request');
-                    server.close();
+                    server.closeAllConnections();
+                    await new Promise((resolve) => { server.close(resolve) });
                 }
             };
         };
 
-        it(`http server/client`, async () => {
+        it(`tcp server/client with http target`, async () => {
             const targetServer = await createEchoHttpServer();
 
             wsm2.on('connection', (sock) => {
@@ -550,8 +486,86 @@ describe('ws-multiplex-socket', () => {
                 `Did not get expected response, got ${buffer}`);
 
             server.close();
-            targetServer.destroy();
+            await targetServer.destroy();
         });
+
+        it(`http server/tcp client with http target`, async () => {
+            const targetServer = await createEchoHttpServer(20001);
+
+            wsm2.on('connection', (sock) => {
+                const targetSock = new net.Socket();
+                targetSock.connect({
+                    host: 'localhost',
+                    port: 20001
+                }, () => {
+                    targetSock.pipe(sock);
+                    sock.pipe(targetSock);
+                });
+
+                const close = () => {
+                    targetSock.unpipe(sock);
+                    sock.unpipe(targetSock);
+                    targetSock.destroy();
+                    sock.destroy();
+                };
+                targetSock.on('close', close);
+                sock.on('close', close);
+            });
+
+            class CustomAgent extends http.Agent {
+                public createConnection(options: object, callback: (err: Error | undefined, sock: Duplex) => void): Duplex {
+                    const onerror = (err: Error): void => {
+                        sock.off('error', onerror);
+                        callback(err, sock);
+                    }
+                    const sock = wsm1.createConnection({}, () => {
+                        sock.off('error', onerror);
+                        callback(undefined, sock);
+                    });
+                    sock.once('error', onerror);
+                    return sock;
+                }
+            }
+
+            const agent = new CustomAgent();
+
+            const httpServer = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
+                const headers = { ...request.headers };
+                delete headers['host'];
+
+                const requestOptions: http.RequestOptions = {
+                    path: request.url,
+                    method: request.method,
+                    headers: request.headers,
+                    agent: agent,
+                };
+
+                const clientReq = http.request(requestOptions, (res) => {
+                    response.writeHead(<number>res.statusCode, res.headers);
+                    res.pipe(response);
+                });
+                request.pipe(clientReq);
+            }).listen(30001);
+
+            // POST request
+            let res = await fetch("http://localhost:30001", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    'foo': 'bar'
+                })
+            });
+            assert(res.status == 200, `Did not get status 200, got ${res.status}`);
+            let data = await res.text();
+            assert(data == '{"foo":"bar"}', `Did not get expected response, got ${data}`);
+
+            await new Promise((resolve) => { httpServer.close(resolve); });
+            await targetServer.destroy();
+            agent.destroy();
+        });
+
     });
 
 });

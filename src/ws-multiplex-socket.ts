@@ -3,15 +3,6 @@ import { WebSocketMultiplex } from './ws-multiplex';
 import { SocketReadyState } from 'node:net';
 import { AddressInfo, SocketConnectOpts } from 'net';
 
-enum WebSocketMultiplexSocketState {
-    CONNECTING = 'CONNECTING',
-    PENDING = 'PENDING',
-    PAUSED = 'PAUSED',
-    OPEN = 'OPEN',
-    HALFOPEN = 'HALFOPEN',
-    ENDED = 'ENDED',
-}
-
 export type WebSocketMultiplexSocketOptions = {
     /**
      * Connection timeout
@@ -27,7 +18,6 @@ export type WebSocketMultiplexSocketOptions = {
 }
 
 export class WebSocketMultiplexSocket extends Duplex {
-    private state: WebSocketMultiplexSocketState;
     private WSM: WebSocketMultiplex;
     private channel: number;
     private dstChannel?: number;
@@ -55,7 +45,6 @@ export class WebSocketMultiplexSocket extends Duplex {
         this.connecting = false;
         this.pending = true;
         this.readyState = "closed";
-        this.state = WebSocketMultiplexSocketState.PENDING;
 
         Object.defineProperty(this, "bytesWritten", {
             get() {
@@ -70,39 +59,12 @@ export class WebSocketMultiplexSocket extends Duplex {
         });
     }
 
-    private clearAutoResumeTriggers(): void {
-        if (this.onDataListener) {
-            this.off('newListener', this.onDataListener);
-            this.onDataListener = undefined;
-        }
-        if (this.onPipeListener) {
-            this.off('pipe', this.onPipeListener);
-            this.onPipeListener = undefined;
-        }
-    }
-
     private onOpen(dstChannel: number): void {
         this.dstChannel = dstChannel;
 
-        this.state = WebSocketMultiplexSocketState.OPEN;
         this.connecting = false;
         this.pending = false;
         this.readyState = "open";
-
-        if (this.listenerCount('data') == 0) {
-            this.pause();
-            this.onDataListener = (name: string) => {
-                if (name == 'data') {
-                    this.resume();
-                }
-            };
-            this.onPipeListener = () => {
-                this.resume();
-            };
-
-            this.once('pipe', this.onPipeListener);
-            this.on('newListener', this.onDataListener);
-        }
 
         for (let i = 0; i < this.openBuffer.length; i++) {
             const {data, cb} = this.openBuffer[i];
@@ -123,7 +85,11 @@ export class WebSocketMultiplexSocket extends Duplex {
     private onData(data: Buffer): void {
         const result = this.push(data);
         if (!result) {
-            this.pause();
+            this.WSM.flowControl(this.channel, true, (err) => {
+                if (err) {
+                    this.emit('error', err);
+                }
+            });
         }
     }
 
@@ -151,8 +117,6 @@ export class WebSocketMultiplexSocket extends Duplex {
         const options = typeof port == 'object' ? (port as WebSocketMultiplexSocketOptions) : {};
 
         this.openBuffer = [];
-
-        this.state = WebSocketMultiplexSocketState.CONNECTING;
         this.readyState = "opening";
         this.connecting = true;
 
@@ -188,7 +152,6 @@ export class WebSocketMultiplexSocket extends Duplex {
         }
         this.destroyed = true;
         this.readyState = "closed";
-        this.state = WebSocketMultiplexSocketState.ENDED;
         this.WSM.close(this.channel);
         typeof callback === 'function' && callback(error);
     }
@@ -225,45 +188,9 @@ export class WebSocketMultiplexSocket extends Duplex {
                 return;
             }
             this.readyState = "readOnly";
-            this.state = WebSocketMultiplexSocketState.HALFOPEN;
             typeof callback === 'function' && callback();
         });
 
-        return this;
-    }
-
-    public push(chunk: Buffer, encoding?: BufferEncoding): boolean {
-        return super.push(chunk, encoding);
-    }
-
-    public pause(): this {
-        if (this.state === WebSocketMultiplexSocketState.OPEN) {
-            this.state = WebSocketMultiplexSocketState.PAUSED;
-            super.pause();
-            this.WSM.flowControl(this.channel, true, (err) => {
-                if (err) {
-                    this.emit('error', err);
-                }
-            });
-        } else {
-            super.pause();
-        }
-        return this;
-    }
-
-    public resume(): this {
-        this.clearAutoResumeTriggers();
-        if (this.state === WebSocketMultiplexSocketState.PAUSED) {
-            this.state = WebSocketMultiplexSocketState.OPEN;
-            super.resume();
-            this.WSM.flowControl(this.channel, false, (err) => {
-                if (err) {
-                    this.emit('error', err);
-                }
-            });
-        } else if (this.state === WebSocketMultiplexSocketState.OPEN) {
-            super.resume();
-        }
         return this;
     }
 
@@ -292,6 +219,14 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     _read(size: number): void {
+        if (this.readyState != "open") {
+            return;
+        }
+        this.WSM.flowControl(this.channel, false, (err) => {
+            if (err) {
+                this.emit('error', err);
+            }
+        });
     }
 
     public setEncoding(encoding: BufferEncoding): this {

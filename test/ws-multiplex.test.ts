@@ -1117,6 +1117,21 @@ describe('ws-multiplex', () => {
             assert(res == true, `expected true, got ${res}`);
         });
 
+        it(`flow control on paused remote does not trigger PAUSE`, async () => {
+            const open = getOpen();
+
+            const [channel, err] = wsm1.open({}, onOpen, onClose, onError, onData, onFlow);
+            assert(typeof channel == 'number');
+            assert(err == undefined);
+            const dstChannel = await open;
+
+            const sendSpy = sinon.spy(wsm2, <any>"sendMessage");
+
+            wsm2["openChannels"][dstChannel].remotePaused = true;
+            wsm2.flowControl(dstChannel, true);
+            assert(sendSpy.called == false, "sendMessage PAUSE message sent on already paused remote");
+        });
+
         it(`flow control can trigger resume`, async () => {
             const open = getOpen();
             const flow = getFlow();
@@ -1126,9 +1141,25 @@ describe('ws-multiplex', () => {
             assert(err == undefined);
             const dstChannel = await open;
 
+            wsm2["openChannels"][dstChannel].remotePaused = true;
             wsm2.flowControl(dstChannel, false);
             const res = await flow;
             assert(res == false, `expected false, got ${res}`);
+        });
+
+        it(`flow control on non-paused remote does not trigger RESUME`, async () => {
+            const open = getOpen();
+
+            const [channel, err] = wsm1.open({}, onOpen, onClose, onError, onData, onFlow);
+            assert(typeof channel == 'number');
+            assert(err == undefined);
+            const dstChannel = await open;
+
+            const sendSpy = sinon.spy(wsm2, <any>"sendMessage");
+
+            wsm2["openChannels"][dstChannel].remotePaused = false;
+            wsm2.flowControl(dstChannel, false);
+            assert(sendSpy.called == false, "sendMessage RESUME message sent on already non-paused remote");
         });
 
         it(`flow control on non-open channel returns error`, async () => {

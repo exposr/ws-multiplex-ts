@@ -112,6 +112,7 @@ interface WSMChannelContext {
     onFlowControl: (stop: boolean) => void,
     bytesWritten: number,
     bytesRead: number,
+    remotePaused: boolean,
     ackTimeout?: NodeJS.Timeout,
 }
 
@@ -247,6 +248,7 @@ export class WebSocketMultiplex extends EventEmitter {
             onError,
             onData,
             onFlowControl,
+            remotePaused: false,
             bytesWritten: 0,
             bytesRead: 0,
         };
@@ -341,10 +343,14 @@ export class WebSocketMultiplex extends EventEmitter {
             return false;
         }
 
-        if (stop) {
+        if (stop && !context.remotePaused) {
+            context.remotePaused = true;
             return this.sendMessage(WSMMessageType.MESSAGE_PAUSE, context.dstChannel, channel, undefined, callback);
-        } else {
+        } else if (!stop && context.remotePaused) {
+            context.remotePaused = false;
             return this.sendMessage(WSMMessageType.MESSAGE_RESUME, context.dstChannel, channel, undefined, callback);
+        } else {
+            return true;
         }
     }
 
