@@ -138,7 +138,8 @@ export class WebSocketMultiplexSocket extends Duplex {
         );
 
         if (err) {
-            throw err;
+            this.emit('error', err);
+            return this;
         }
         this.channel = channel;
 

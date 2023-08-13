@@ -80,13 +80,28 @@ describe('ws-multiplex-socket', () => {
 
     it(`connect event callback can be supplied directly to createConnection`, async () => {
         const sock = await new Promise((resolve) => {
-            const sock = wsm1.createConnection({}, () => {
+            const sock = wsm1.createConnection({}, (err, callbackSock) => {
+                assert(err == undefined);
+                assert(callbackSock instanceof WebSocketMultiplexSocket);
                 resolve(sock);
             });
         });
 
         assert(sock instanceof WebSocketMultiplexSocket, `expected socket, got ${sock}`);
     });
+
+    it(`connect event callback to createConnection can return errors`, async () => {
+
+        sinon.stub(wsm1, "open").returns([undefined, new Error("open-error")]);
+
+        const err: Error | undefined = await new Promise((resolve) => {
+            wsm1.createConnection({}, (err, callbackSock) => {
+                resolve(err);
+            });
+        });
+        assert(err?.message == "open-error")
+    });
+
 
     it(`can connect using sock.connect`, async () => {
         const sock = new WebSocketMultiplexSocket(wsm1);
@@ -438,7 +453,10 @@ describe('ws-multiplex-socket', () => {
 
             const server = new net.Server()
                 .on('connection', (client) => {
-                    const wsmSock = wsm1.createConnection({}, () => {
+                    const wsmSock = wsm1.createConnection({}, (err) => {
+                        if (err) {
+                            return;
+                        }
                         wsmSock.pipe(client);
                         client.pipe(wsmSock);
                     });
@@ -514,16 +532,7 @@ describe('ws-multiplex-socket', () => {
 
             class CustomAgent extends http.Agent {
                 public createConnection(options: object, callback: (err: Error | undefined, sock: Duplex) => void): Duplex {
-                    const onerror = (err: Error): void => {
-                        sock.off('error', onerror);
-                        callback(err, sock);
-                    }
-                    const sock = wsm1.createConnection({}, () => {
-                        sock.off('error', onerror);
-                        callback(undefined, sock);
-                    });
-                    sock.once('error', onerror);
-                    return sock;
+                    return wsm1.createConnection({}, callback);
                 }
             }
 

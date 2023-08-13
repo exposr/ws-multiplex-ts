@@ -8,6 +8,7 @@ import { EventEmitter } from 'node:stream';
 import { WebSocket } from 'ws';
 import { WebSocketMultiplexError, WebSocketMultiplexErrorCode } from './ws-multiplex-error';
 import { WebSocketMultiplexSocket, WebSocketMultiplexSocketOptions } from './ws-multiplex-socket';
+import { Duplex } from 'stream';
 
 const DEFAULT_KEEP_ALIVE: number = 10000;
 const CHANNEL_MIN: number = 1;
@@ -358,12 +359,20 @@ export class WebSocketMultiplex extends EventEmitter {
      * Create a socket connection
      *
      * @param options Connection options
-     * @param connectCallback Callback on successful connection
+     * @param createCallback Callback on connect/error.
      * @returns Instance of WebSocketMultiplexSocket
      */
-    public createConnection(options: WebSocketMultiplexSocketOptions, connectCallback?: () => void): WebSocketMultiplexSocket {
+    public createConnection(options: WebSocketMultiplexSocketOptions, createCallback?: (err: Error | undefined, socket: Duplex) => void): WebSocketMultiplexSocket {
         const sock = new WebSocketMultiplexSocket(this);
-        return sock.connect(options, connectCallback);
+        const onerror = (err: Error): void => {
+            sock.off('error', onerror);
+            typeof createCallback == 'function' && createCallback(err, sock);
+        }
+        sock.once('error', onerror);
+        return sock.connect(options, () => {
+            sock.off('error', onerror);
+            typeof createCallback == 'function' && createCallback(undefined, sock);
+        });
     }
 
     /**
