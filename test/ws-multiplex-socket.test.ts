@@ -225,14 +225,6 @@ describe('ws-multiplex-socket', () => {
         assert(emitSpy.getCall(2).args[0] == "close", "third event is not close");
     });
 
-    it(`write on non-socket fails`, async () => {
-        const sock = new WebSocketMultiplexSocket(wsm1);
-        const errEvent = new Promise((resolve) => { sock.once("error", resolve) });
-        sock.write(Buffer.from("hello"));
-        const err = await errEvent;
-        assert(err instanceof Error);
-    });
-
     it(`write after destroy fails`, async () => {
         const sock = await new Promise((resolve) => {
             const sock = wsm1.createConnection({}, () => {

@@ -21,9 +21,7 @@ export class WebSocketMultiplexSocket extends Duplex {
     private WSM: WebSocketMultiplex;
     private channel: number;
     private dstChannel?: number;
-    private onDataListener?: (name: string) => void;
-    private onPipeListener?: (name: string) => void;
-    private openBuffer: Array<{data: Array<Buffer>, cb: (err?: Error) => void}> = [];
+    private constructCallback: ((error?: Error | null | undefined) => void) | undefined;
 
     public connecting: boolean;
     public pending: boolean;
@@ -45,6 +43,7 @@ export class WebSocketMultiplexSocket extends Duplex {
         this.connecting = false;
         this.pending = true;
         this.readyState = "closed";
+        this.constructCallback = undefined;
 
         Object.defineProperty(this, "bytesWritten", {
             get() {
@@ -66,12 +65,7 @@ export class WebSocketMultiplexSocket extends Duplex {
         this.pending = false;
         this.readyState = "open";
 
-        for (let i = 0; i < this.openBuffer.length; i++) {
-            const {data, cb} = this.openBuffer[i];
-            this.WSM.send(<number>this.channel, data, cb);
-        }
-        this.openBuffer = [];
-
+        typeof this.constructCallback == 'function' && this.constructCallback();
         this.emit('connect');
         this.emit('ready');
     }
@@ -116,7 +110,6 @@ export class WebSocketMultiplexSocket extends Duplex {
     public connect(port: unknown, host?: unknown, connectionListener?: unknown): this {
         const options = typeof port == 'object' ? (port as WebSocketMultiplexSocketOptions) : {};
 
-        this.openBuffer = [];
         this.readyState = "opening";
         this.connecting = true;
 
@@ -144,6 +137,10 @@ export class WebSocketMultiplexSocket extends Duplex {
         this.channel = channel;
 
         return this;
+    }
+
+    _construct(callback: (error?: Error | null | undefined) => void): void {
+        this.constructCallback = callback;
     }
 
     _destroy(error: Error | null, callback: (error: Error | null) => void): void {
@@ -195,20 +192,8 @@ export class WebSocketMultiplexSocket extends Duplex {
         return this;
     }
 
-    private wsmWrite(data: Buffer | Array<Buffer>, cb: (error?: Error) => void): boolean {
-        if (this.readyState == "opening") {
-            if (data instanceof Buffer) {
-                data = [data];
-            }
-            this.openBuffer.push({data, cb});
-            return true;
-        } else {
-            return this.WSM.send(<number>this.channel, data, cb);
-        }
-    }
-
     _write(data: Buffer, encoding: BufferEncoding, callback: (error?: Error) => void): void {
-        this.wsmWrite(data, callback);
+        this.WSM.send(<number>this.channel, data, callback);
     }
 
     _writev(chunks: Array<{ chunk: any; encoding: BufferEncoding; }>, callback: (error?: Error) => void): void {
@@ -216,7 +201,7 @@ export class WebSocketMultiplexSocket extends Duplex {
         for (const item of chunks) {
             buffers.push(item.chunk)
         }
-        this.wsmWrite(buffers, callback);
+        this.WSM.send(<number>this.channel, buffers, callback);
     }
 
     _read(size: number): void {
