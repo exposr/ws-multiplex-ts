@@ -371,7 +371,7 @@ describe('ws-multiplex-socket', () => {
         const [sock1, sock2] = await connectPair();
 
         await new Promise((resolve) => { sock1.end(resolve)});
-        assert(sock1.readyState == 'readOnly');
+        assert(sock1.readyState == 'open');
     });
 
     it(`flow control is triggered when required on push and read`, async () => {

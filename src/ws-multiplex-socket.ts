@@ -170,28 +170,6 @@ export class WebSocketMultiplexSocket extends Duplex {
         return this;
     }
 
-    public end(cb?: () => void): this;
-    public end(chunk: any, cb?: () => void): this;
-    public end(chunk: any, encoding?: BufferEncoding, cb?: () => void): this;
-
-    public end(chunkOrCb?: any | (() => void), encodingOrCb?: BufferEncoding | (() => void), cb?: () => void): this {
-        let encoding = typeof encodingOrCb == 'function' ? undefined : encodingOrCb;
-        let chunk = typeof chunkOrCb == 'function' ? undefined : chunkOrCb;
-        let callback = typeof chunkOrCb == 'function' ? chunkOrCb :
-            (typeof encodingOrCb == 'function' ? encodingOrCb : cb);
-
-        super.end(chunk, encoding, () => {
-            if (this.destroyed) {
-                typeof callback === 'function' && callback();
-                return;
-            }
-            this.readyState = "readOnly";
-            typeof callback === 'function' && callback();
-        });
-
-        return this;
-    }
-
     _write(data: Buffer, encoding: BufferEncoding, callback: (error?: Error) => void): void {
         this.WSM.send(<number>this.channel, data, callback);
     }
