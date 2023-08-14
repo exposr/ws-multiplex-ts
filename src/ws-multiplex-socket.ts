@@ -18,7 +18,7 @@ export type WebSocketMultiplexSocketOptions = {
 }
 
 export class WebSocketMultiplexSocket extends Duplex {
-    private WSM: WebSocketMultiplex;
+    private wsm: WebSocketMultiplex;
     private channel: number;
     private dstChannel?: number;
     private constructCallback: ((error?: Error | null | undefined) => void) | undefined;
@@ -31,12 +31,12 @@ export class WebSocketMultiplexSocket extends Duplex {
     public bytesRead?: number;
     public bufferSize: number;
 
-    constructor(WSM: WebSocketMultiplex) {
+    constructor(wsm: WebSocketMultiplex) {
         super({
             defaultEncoding: 'binary'
         });
 
-        this.WSM = WSM;
+        this.wsm = wsm;
         this.channel = 0;
         this.bufferSize = 0;
         this.destroyed = false;
@@ -47,13 +47,13 @@ export class WebSocketMultiplexSocket extends Duplex {
 
         Object.defineProperty(this, "bytesWritten", {
             get() {
-                return this.WSM.channelInfo(this.channel)?.bytesWritten || 0;
+                return this.wsm.channelInfo(this.channel)?.bytesWritten || 0;
             }
         });
 
         Object.defineProperty(this, "bytesRead", {
             get() {
-                return this.WSM.channelInfo(this.channel)?.bytesRead || 0;
+                return this.wsm.channelInfo(this.channel)?.bytesRead || 0;
             }
         });
     }
@@ -79,7 +79,7 @@ export class WebSocketMultiplexSocket extends Duplex {
     private onData(data: Buffer): void {
         const result = this.push(data);
         if (!result) {
-            this.WSM.flowControl(this.channel, true, (err) => {
+            this.wsm.flowControl(this.channel, true, (err) => {
                 if (err) {
                     this.emit('error', err);
                 }
@@ -118,7 +118,7 @@ export class WebSocketMultiplexSocket extends Duplex {
             (typeof connectionListener == 'function' ? (connectionListener as () => void) : undefined);
         typeof connectionCallback == 'function' && this.once('connect', connectionCallback);
 
-        const [channel, err] = this.WSM.open(
+        const [channel, err] = this.wsm.open(
             {
                 dstChannel: options.dstChannel,
                 timeout: options.timeout,
@@ -150,7 +150,7 @@ export class WebSocketMultiplexSocket extends Duplex {
         }
         this.destroyed = true;
         this.readyState = "closed";
-        this.WSM.close(this.channel);
+        this.wsm.close(this.channel);
         typeof callback === 'function' && callback(error);
     }
 
@@ -171,7 +171,7 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     _write(data: Buffer, encoding: BufferEncoding, callback: (error?: Error) => void): void {
-        this.WSM.send(<number>this.channel, data, callback);
+        this.wsm.send(<number>this.channel, data, callback);
     }
 
     _writev(chunks: Array<{ chunk: any; encoding: BufferEncoding; }>, callback: (error?: Error) => void): void {
@@ -179,14 +179,14 @@ export class WebSocketMultiplexSocket extends Duplex {
         for (const item of chunks) {
             buffers.push(item.chunk)
         }
-        this.WSM.send(<number>this.channel, buffers, callback);
+        this.wsm.send(<number>this.channel, buffers, callback);
     }
 
     _read(size: number): void {
         if (this.readyState != "open") {
             return;
         }
-        this.WSM.flowControl(this.channel, false, (err) => {
+        this.wsm.flowControl(this.channel, false, (err) => {
             if (err) {
                 this.emit('error', err);
             }
