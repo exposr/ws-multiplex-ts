@@ -570,6 +570,7 @@ describe('ws-multiplex-socket', () => {
             let data = await res.text();
             assert(data == '{"foo":"bar"}', `Did not get expected response, got ${data}`);
 
+            httpServer.closeAllConnections();
             await new Promise((resolve) => { httpServer.close(resolve); });
             await targetServer.destroy();
             agent.destroy();
