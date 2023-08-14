@@ -374,27 +374,71 @@ describe('ws-multiplex-socket', () => {
         assert(sock1.readyState == 'open');
     });
 
-    it(`flow control is triggered when required on push and read`, async () => {
+    it(`read() works`, async () => {
         const [sock1, sock2] = await connectPair();
 
-        const corkSpy = sinon.spy(sock1, "cork");
-        const uncorkSpy = sinon.spy(sock1, "uncork");
-        const pushStub = sinon.stub(sock2, "push").returns(false);
+        sock1.on("readable", () => {
+            const buf = sock1.read();
+        });
 
-        sock1.write(Buffer.from("hello"));
+        sock2.write("hello");
+    });
+
+    it(`read() with internal buffer returns data`, async () => {
+        const [sock1, sock2] = await connectPair();
+
+        const read: Promise<Buffer> = new Promise((resolve) => {
+            sock1.on("readable", () => {
+                const data = sock1.read();
+                resolve(data);
+            });
+        });
+
+        sock1["readBuffer"].push(Buffer.from("hello"));
+        sock1["readBufferSize"] = 4;
+
+        sock1.read(0);
+        const data = await read;
+        assert(data.equals(Buffer.from("hello")));
+    });
+
+    it(`channel is paused if internal buffer goes over highwatermark`, async () => {
+        const [sock1, sock2] = await connectPair();
+
+        const pushStub = sinon.stub(sock2, "push").returns(false);
+        sock2["readBufferSize"] = sock2["readableHighWaterMark"];
+
+        const corkSpy = sinon.spy(sock1, "cork");
+        sock1.write("hello");
 
         for (let i = 0; corkSpy.callCount == 0 && i < 10; i++) {
             await clock.tickAsync(1000);
         }
-        assert(corkSpy.called == true, "false from push did not cork remote socket");
+        assert(corkSpy.called == true, "channel not paused");
+    });
+
+    it(`paused channel is resumed on read()`, async () => {
+        const [sock1, sock2] = await connectPair();
+
+        const pushStub = sinon.stub(sock2, "push").returns(false);
+        sock2["readBufferSize"] = sock2["readableHighWaterMark"];
+
+        const corkSpy = sinon.spy(sock1, "cork");
+        sock1.write("hello");
+
+        for (let i = 0; corkSpy.callCount == 0 && i < 10; i++) {
+            await clock.tickAsync(1000);
+        }
+        assert(corkSpy.called == true, "channel not paused");
 
         pushStub.restore();
+        const uncorkSpy = sinon.spy(sock1, "uncork");
         sock2.read();
 
         for (let i = 0; uncorkSpy.callCount == 0 && i < 10; i++) {
             await clock.tickAsync(1000);
         }
-        assert(uncorkSpy.called == true, "read did not uncork remote socket");
+        assert(uncorkSpy.called == true, "channel not resumed");
     });
 
     describe(`complex use cases`, () => {

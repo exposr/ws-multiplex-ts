@@ -22,6 +22,9 @@ export class WebSocketMultiplexSocket extends Duplex {
     private channel: number;
     private dstChannel?: number;
     private constructCallback: ((error?: Error | null | undefined) => void) | undefined;
+    private readBuffer: Array<Buffer>;
+    private readBufferSize: number;
+    private wantData: boolean = false;
 
     public connecting: boolean;
     public pending: boolean;
@@ -44,6 +47,8 @@ export class WebSocketMultiplexSocket extends Duplex {
         this.pending = true;
         this.readyState = "closed";
         this.constructCallback = undefined;
+        this.readBuffer = [];
+        this.readBufferSize = 0;
 
         Object.defineProperty(this, "bytesWritten", {
             get() {
@@ -77,8 +82,13 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     private onData(data: Buffer): void {
-        const result = this.push(data);
-        if (!result) {
+        this.readBuffer.push(data);
+        this.readBufferSize += data.length;
+        if (this.wantData) {
+            this.wantData = false;
+            this.flush();
+        }
+        if (this.readBufferSize > this.readableHighWaterMark) {
             this.wsm.flowControl(this.channel, true, (err) => {
                 if (err) {
                     this.emit('error', err);
@@ -182,10 +192,27 @@ export class WebSocketMultiplexSocket extends Duplex {
         this.wsm.send(<number>this.channel, buffers, callback);
     }
 
-    _read(size: number): void {
-        if (this.readyState != "open") {
-            return;
+    private flush(): void {
+        while (true) {
+            const data = this.readBuffer.shift();
+            if (!data) {
+                break;
+            }
+            this.readBufferSize -= data.length;
+            const res = this.push(data);
+            if (!res) {
+                break;
+            }
         }
+    }
+
+    _read(size: number): void {
+        if (this.readBufferSize > 0) {
+            this.flush();
+        } else {
+            this.wantData = true;
+        }
+
         this.wsm.flowControl(this.channel, false, (err) => {
             if (err) {
                 this.emit('error', err);
