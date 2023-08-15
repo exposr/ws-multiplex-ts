@@ -6,6 +6,7 @@ import { WebSocketMultiplex } from '../src/ws-multiplex'
 import { WebSocketMultiplexError, WebSocketMultiplexErrorCode } from '../src/ws-multiplex-error';
 import { WebSocketMultiplexSocket } from '../src/ws-multiplex-socket';
 import EventEmitter from 'events';
+import { setTimeout } from 'timers/promises';
 
 describe('ws-multiplex', () => {
 
@@ -44,10 +45,8 @@ describe('ws-multiplex', () => {
         await new Promise((resolve) => wsm.once("close", resolve));
 
         assert(terminateSpy.called, "terminate not called");
-        assert(emitSpy.firstCall.args[0] == 'error', "error not emitted first");
-        assert(emitSpy.firstCall.args[1]?.code == 'ERR_WS_SOCKET_CLOSED_UNEXPECTEDLY',
-            "expected error ERR_WS_SOCKET_CLOSED_UNEXPECTEDLY");
-        assert(emitSpy.secondCall.args[0] == 'close', "close not emitted");
+        assert(terminateSpy.callCount == 1, "only expected one emit call");
+        assert(emitSpy.firstCall.args[0] == 'close', "close not emitted");
 
         await wsm.destroy();
     });
@@ -441,8 +440,8 @@ describe('ws-multiplex', () => {
         });
 
         afterEach(async () => {
-            wsm1?.destroy();
-            wsm2?.destroy();
+            await wsm1?.destroy();
+            await wsm2?.destroy();
             ev.removeAllListeners();
         });
 
@@ -550,7 +549,7 @@ describe('ws-multiplex', () => {
         it(`open on closed websocket returns error`, async () => {
             const error = getError();
 
-            const stub = sinon.stub(wsm1, 'closed').value(true);
+            const stub = sinon.stub(wsm1, <any>'ready').value(false);
             const [channel, err] = wsm1.open({}, onOpen, onClose, onError, onData, (stop: boolean) => {});
             assert(err == undefined);
             assert(channel == 1);
@@ -586,7 +585,7 @@ describe('ws-multiplex', () => {
             const error = getError();
 
             // Prevent ACK response to the OPEN message
-            const stub = sinon.stub(wsm2, <any>'sendMessage');
+            const stub = sinon.stub(wsm2, <any>'handleOpenMessage');
 
             const [channel, err] = wsm1.open({
                 timeout: 1000
@@ -816,6 +815,33 @@ describe('ws-multiplex', () => {
             assert(closedDstChannel == dstChannel, `closed channel different than open, ${closedDstChannel != dstChannel}`);
         });
 
+        it(`objects are terminated with error if the underlying socket is closed while channels are open`, async () => {
+            const open = getOpen();
+            const close = getClose();
+
+            wsm1.on('error', () => {});
+            wsm2.on('error', () => {});
+            wsm1.on("close", () => {});
+            wsm2.on("close", () => {});
+
+            const [channel, err] = wsm2.open({}, onOpen, onClose, onError, onData, onFlow);
+            await open;
+
+            const terminateSpy = sinon.spy(wsm1, <any>"terminate");
+            const emitSpy = sinon.spy(wsm1, "emit");
+            const close1 = new Promise((resolve) => wsm1.once("close", resolve));
+
+            socketPair.sock1.close();
+            await close1;
+
+            assert(terminateSpy.called, "terminate not called");
+            assert(emitSpy.firstCall.args[0] == 'error', "error not emitted first");
+            assert(emitSpy.firstCall.args[1]?.code == 'ERR_WS_SOCKET_CLOSED_UNEXPECTEDLY',
+                "expected error ERR_WS_SOCKET_CLOSED_UNEXPECTEDLY");
+            assert(emitSpy.secondCall?.args[0] == 'close', "close not emitted");
+        });
+
+
         it(`send data is received`, async () => {
             const open = getOpen();
             const data = getData();
@@ -993,7 +1019,7 @@ describe('ws-multiplex', () => {
         });
 
         it(`send before ACK returns error`, async () => {
-            const stub = sinon.stub(wsm1, <any>'sendMessage');
+            const stub = sinon.stub(wsm2, <any>'handleOpenMessage');
 
             let [channel, err] = wsm1.open({}, onOpen, onClose, onError, onData, onFlow);
             assert(typeof channel == 'number');

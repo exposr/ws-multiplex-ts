@@ -171,6 +171,7 @@ export class WebSocketMultiplex extends EventEmitter {
     private socketCloseFn: any;
     private socketMessageFn: any;
 
+    private ready: boolean = false;
     public closed: boolean = false;
 
     public bytesWritten: number;
@@ -203,14 +204,12 @@ export class WebSocketMultiplex extends EventEmitter {
         this.peerKeepAlive();
         this.aliveTimer = setInterval(() => { this.peerKeepAlive() }, this.keepAlive);
 
-        this.socketCloseFn = () => {
-            const error = new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WS_SOCKET_CLOSED_UNEXPECTEDLY);
-            this.terminate(error);
-        };
+        this.socketCloseFn = this.onClose.bind(this);
         this.socket.on("close", this.socketCloseFn);
 
         this.socketMessageFn = this.onMessage.bind(this);
         this.socket.on("message", this.socketMessageFn);
+        this.ready = true;
     }
 
     /**
@@ -408,10 +407,21 @@ export class WebSocketMultiplex extends EventEmitter {
         return Number((process.hrtime.bigint() - this.lastPong) / BigInt(1000000));
     }
 
+    private onClose(code: number, reason: Buffer) {
+        let error: Error | undefined = undefined;
+        if (Object.keys(this.openChannels).length > 0) {
+            let reasonMsg: String = reason?.toString('utf-8') || '';
+            let msg: string = `${code}${reasonMsg != '' ? ` ${reasonMsg}` : ''}`;
+            error = new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WS_SOCKET_CLOSED_UNEXPECTEDLY, msg);
+        }
+        this.terminate(error);
+    }
+
     private async terminate(error: Error | undefined): Promise<void> {
         if (this.closed) {
             return;
         }
+        this.closed = true;
         const openChannels = [...Object.keys(this.openChannels)];
         for (let k of openChannels) {
             const channel = Number(k);
@@ -439,6 +449,7 @@ export class WebSocketMultiplex extends EventEmitter {
         this.socket.off("message", this.socketMessageFn);
         assert(this.socket.listenerCount("message") == Math.max((listeners - 1), 0), "message listener count");
 
+        this.ready = false;
         if (error != undefined) {
             this.emit('error', error);
         }
@@ -497,7 +508,7 @@ export class WebSocketMultiplex extends EventEmitter {
     }
 
     private sendMessage(type: WSMMessageType, destChannel: number, sourceChannel: number, data?: Buffer | Array<Buffer>, callback?: (err?: Error) => void): boolean {
-        if (this.closed) {
+        if (!this.ready) {
             typeof callback == 'function' &&
                 callback(new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WS_SOCKED_CLOSED));
             return false;
@@ -595,7 +606,6 @@ export class WebSocketMultiplex extends EventEmitter {
 
         return [channel, undefined];
     }
-
 
     private closeRemoteChannel(dstChannel: number, srcChannel?: number, err?: Error, callback?: (err?: Error) => void): boolean {
         let errorBuffer = undefined;
