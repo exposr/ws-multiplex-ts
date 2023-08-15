@@ -173,6 +173,9 @@ export class WebSocketMultiplex extends EventEmitter {
 
     public closed: boolean = false;
 
+    public bytesWritten: number;
+    public bytesRead: number;
+
     /**
      * Create a new websocket channel multiplexer
      *
@@ -191,6 +194,8 @@ export class WebSocketMultiplex extends EventEmitter {
         this.maxChannels = options?.maxChannels || DEFAULT_MAX_OPEN_CHANNELS;
         this.openChannels = {};
         this.openRemoteChannels = {};
+        this.bytesWritten = 0;
+        this.bytesRead = 0;
 
         this.socketPongFn = this.onPong.bind(this);
         this.socket.on("pong", this.socketPongFn);
@@ -527,6 +532,7 @@ export class WebSocketMultiplex extends EventEmitter {
                 }, callback);
 
                 if (type == WSMMessageType.MESSAGE_DATA) {
+                    this.bytesWritten += dataLength;
                     this.openChannels[sourceChannel].bytesWritten += dataLength;
                     this.openChannels[sourceChannel].pktWritten++;
                 }
@@ -702,6 +708,7 @@ export class WebSocketMultiplex extends EventEmitter {
             }
             return;
         }
+        this.bytesRead += WSMm.data.length;
         context.bytesRead += WSMm.data.length;
         context.pktRead++;
         context.onData(WSMm.data);

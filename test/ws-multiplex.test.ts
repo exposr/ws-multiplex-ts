@@ -1036,6 +1036,19 @@ describe('ws-multiplex', () => {
 
             data = await dataSecond;
             assert(data.equals(Buffer.from("second")));
+
+            assert(wsm1.channelInfo(channelFirst).bytesRead == 5, "bytesRead is not 5");
+            assert(wsm1.channelInfo(channelFirst).bytesWritten == 0, "bytesWritten is not 0");
+            assert(wsm2.channelInfo(dstChannelFirst).bytesWritten == 5, "bytesWritten is not 5");
+            assert(wsm2.channelInfo(dstChannelFirst).bytesRead == 0, "bytesRead is not 0");
+            assert(wsm1.channelInfo(channelSecond).bytesRead == 6, "bytesRead is not 6");
+            assert(wsm1.channelInfo(channelSecond).bytesWritten == 0, "bytesWritten is not 0");
+            assert(wsm2.channelInfo(dstChannelSecond).bytesWritten == 6, "bytesWritten is not 6");
+            assert(wsm2.channelInfo(dstChannelSecond).bytesRead == 0, "bytesRead is not 0");
+            assert(wsm1.bytesRead == 11, "total bytesRead is not 11");
+            assert(wsm1.bytesWritten == 0, "total bytesWritten is not 0");
+            assert(wsm2.bytesWritten == 11, "total bytesWritten is not 11");
+            assert(wsm2.bytesRead == 0, "total bytesRead is not 0");
         });
 
         it(`send accepts array of two buffers`, async () => {
