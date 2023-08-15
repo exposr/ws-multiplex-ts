@@ -113,6 +113,8 @@ interface WSMChannelContext {
     onFlowControl: (stop: boolean) => void,
     bytesWritten: number,
     bytesRead: number,
+    pktWritten: number,
+    pktRead: number,
     remotePaused: boolean,
     ackTimeout?: NodeJS.Timeout,
 }
@@ -128,6 +130,8 @@ interface OpenOptions {
 type ChannelInfo = {
     bytesWritten?: number,
     bytesRead?: number,
+    pktWritten?: number,
+    pktRead?: number,
 }
 
 export interface WebSocketMultiplexOptions {
@@ -252,6 +256,8 @@ export class WebSocketMultiplex extends EventEmitter {
             remotePaused: false,
             bytesWritten: 0,
             bytesRead: 0,
+            pktWritten: 0,
+            pktRead: 0,
         };
 
         if (options.dstChannel == undefined) {
@@ -388,6 +394,8 @@ export class WebSocketMultiplex extends EventEmitter {
         return {
             bytesWritten: context.bytesWritten,
             bytesRead: context.bytesRead,
+            pktWritten: context.pktWritten,
+            pktRead: context.pktRead,
         }
     }
 
@@ -520,6 +528,7 @@ export class WebSocketMultiplex extends EventEmitter {
 
                 if (type == WSMMessageType.MESSAGE_DATA) {
                     this.openChannels[sourceChannel].bytesWritten += dataLength;
+                    this.openChannels[sourceChannel].pktWritten++;
                 }
             } else {
                 typeof callback == 'function' && callback();
@@ -694,6 +703,7 @@ export class WebSocketMultiplex extends EventEmitter {
             return;
         }
         context.bytesRead += WSMm.data.length;
+        context.pktRead++;
         context.onData(WSMm.data);
     }
 

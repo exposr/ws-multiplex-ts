@@ -827,6 +827,8 @@ describe('ws-multiplex', () => {
 
             assert(wsm1.channelInfo(channel).bytesRead == 0, "bytesRead is not 0");
             assert(wsm2.channelInfo(dstChannel).bytesWritten == 0, "bytesWritten is not 0");
+            assert(wsm1.channelInfo(channel).pktRead == 0, "pktRead is not 0");
+            assert(wsm2.channelInfo(dstChannel).pktWritten == 0, "pktWritten is not 0");
 
             const res = await new Promise((resolve) => {
                 const res = wsm2.send(dstChannel, Buffer.from("hello"), (err) => {
@@ -841,6 +843,8 @@ describe('ws-multiplex', () => {
 
             assert(wsm1.channelInfo(channel).bytesRead == 5);
             assert(wsm2.channelInfo(dstChannel).bytesWritten == 5);
+            assert(wsm1.channelInfo(channel).pktRead == 1);
+            assert(wsm2.channelInfo(dstChannel).pktWritten == 1);
         });
 
         it(`send on local closed channel returns error`, async () => {
