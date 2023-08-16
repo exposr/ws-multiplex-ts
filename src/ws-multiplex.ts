@@ -134,6 +134,12 @@ type ChannelInfo = {
     pktRead?: number,
 }
 
+type WSMDiagnostic = {
+    openChannels: number,
+    bytesWritten: number,
+    bytesRead: number,
+}
+
 export interface WebSocketMultiplexOptions {
     reference?: string,
     /**
@@ -400,6 +406,14 @@ export class WebSocketMultiplex extends EventEmitter {
             bytesRead: context.bytesRead,
             pktWritten: context.pktWritten,
             pktRead: context.pktRead,
+        }
+    }
+
+    public diagnostics(): WSMDiagnostic  {
+        return {
+            openChannels: Object.keys(this.openChannels).length,
+            bytesWritten: this.bytesWritten,
+            bytesRead: this.bytesRead,
         }
     }
 
