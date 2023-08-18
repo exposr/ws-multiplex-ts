@@ -165,6 +165,7 @@ export class WebSocketMultiplex extends EventEmitter {
     private keepAlive: number;
     private aliveThreshold: number;
     private maxChannels: number;
+    private nextChannel: number = CHANNEL_MIN;
     private openChannels: { [key: number]: WSMChannelContext };
     /* Hashmap remote -> local */
     private openRemoteChannels: { [key: number]: number };
@@ -607,12 +608,11 @@ export class WebSocketMultiplex extends EventEmitter {
             return [undefined, new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WSM_NO_CHANNELS)];
         }
 
-        let channel =
-            ((openChannels.length == 0 ? 0 : (Number(openChannels[openChannels.length - 1])))
-                % CHANNEL_MAX) + 1;
+        const channel = this.nextChannel;
+        this.nextChannel = (this.nextChannel % CHANNEL_MAX) + 1;
 
-        for (let i = 0; this.openChannels[channel] != undefined && i < this.maxChannels; i++) {
-            channel = channel + 1
+        for (let i = 0; this.openChannels[this.nextChannel] != undefined && i < this.maxChannels; i++) {
+            this.nextChannel = this.nextChannel + 1;
         }
 
         assert(channel >= CHANNEL_MIN && channel <= CHANNEL_MAX, `channel ${channel} not within rage`);

@@ -306,6 +306,24 @@ describe('ws-multiplex', () => {
                 assert(err instanceof WebSocketMultiplexError);
                 assert(err.code == WebSocketMultiplexErrorCode.ERR_WSM_NO_CHANNELS);
             });
+
+            it(`finds free channel after MAX_CHANNEL wrap-around`, async () => {
+                sinon.stub(wsm1, <any>"maxChannels").value(2);
+
+                wsm1["nextChannel"] = Math.pow(2, 32);
+                wsm1["openChannels"][1] = <any>{};
+
+                let [channel, err] = wsm1["allocateChannel"]();
+                assert(channel == Math.pow(2, 32));
+                assert(err == undefined);
+
+                [channel, err] = wsm1["allocateChannel"]();
+                assert(channel == 2);
+                assert(err == undefined);
+
+                wsm1["openChannels"][1] = <any>{};
+                sinon.restore();
+            });
         });
 
         it(`can listen for new channel connections`, async () => {
@@ -339,80 +357,6 @@ describe('ws-multiplex', () => {
             assert(raw.equals(ack), `did not receive expected ACK, got ${raw.toString('hex')}`);
 
             assert(wsm2["openChannels"][1] != undefined);
-            assert(wsm2["openRemoteChannels"][2] != undefined);
-
-            wsm1.destroy();
-            wsm2.destroy();
-        });
-
-        it(`connection succeeds with fragmented channel maps`, async () => {
-            openStub.restore();
-            wsm1["maxChannels"] = 5;
-            wsm2["maxChannels"] = 5;
-
-            const connect = async (srcChannel: number) => {
-                const con = new Promise((resolve: (sock: WebSocketMultiplexSocket) => void) => {
-                    wsm2.once("connection", (sock: WebSocketMultiplexSocket) => {
-                        resolve(sock);
-                    });
-                });
-
-                wsm1["sendMessage"](2, 0, srcChannel);
-                return con;
-            };
-
-            const sock = await connect(1);
-            assert(wsm2["openChannels"][1] != undefined);
-
-            // Populate all channels except one, so that they appear used
-            wsm2["openChannels"][2] = wsm2["openChannels"][1];
-            wsm2["openChannels"][4] = wsm2["openChannels"][1];
-            wsm2["openChannels"][5] = wsm2["openChannels"][1];
-
-            const sock2 = await connect(2);
-            assert(sock instanceof WebSocketMultiplexSocket, `did not get socket, got ${sock}`);
-            assert(sock2["channel"] == 6);
-
-            assert(wsm2["openChannels"][6] != undefined);
-            assert(wsm2["openRemoteChannels"][2] != undefined);
-
-            wsm1.destroy();
-            wsm2.destroy();
-        });
-
-        it(`connection succeeds with fragmented channel maps with MAX_CHANNEL wrap-around`, async () => {
-            openStub.restore();
-            wsm1["maxChannels"] = 5;
-            wsm2["maxChannels"] = 5;
-
-            const connect = async (srcChannel: number) => {
-                const con = new Promise((resolve: (sock: WebSocketMultiplexSocket) => void) => {
-                    wsm2.once("connection", (sock: WebSocketMultiplexSocket) => {
-                        resolve(sock);
-                    });
-                });
-
-                wsm1["sendMessage"](2, 0, srcChannel);
-                return con;
-            };
-
-            const sock = await connect(1);
-            assert(wsm2["openChannels"][1] != undefined);
-
-            // Populate all channels except one, so that they appear used
-            wsm2["openChannels"][2] = wsm2["openChannels"][1];
-            wsm2["openChannels"][4] = wsm2["openChannels"][1];
-            wsm2["openChannels"][Math.pow(2, 32)] = wsm2["openChannels"][1];
-
-            wsm1["openRemoteChannels"][2] = wsm1["openRemoteChannels"][1];
-            wsm1["openRemoteChannels"][4] = wsm1["openRemoteChannels"][1];
-            wsm1["openRemoteChannels"][Math.pow(2, 32)] = wsm1["openRemoteChannels"][1];
-
-            const sock2 = await connect(2);
-            assert(sock instanceof WebSocketMultiplexSocket, `did not get socket, got ${sock}`);
-            assert(sock2["channel"] == 3);
-
-            assert(wsm2["openChannels"][3] != undefined);
             assert(wsm2["openRemoteChannels"][2] != undefined);
 
             wsm1.destroy();
@@ -1127,8 +1071,9 @@ describe('ws-multiplex', () => {
                 return [channel, dstChannel];
             };
 
-            const stub = sinon.stub(wsm2, <any>'allocateChannel').returns([10, undefined]);
+            wsm2["nextChannel"] = 10;
             let [channel, dstChannel] = await openChannel();
+
             assert(channel = 1, `expected local channel 1, got ${channel}`);
             assert(dstChannel == 10, `expected remote channel 10, got ${dstChannel}`);
             assert(wsm1["openChannels"][channel].dstChannel == 10, "wsm1 dstChannel not updated after ACK");
@@ -1136,7 +1081,6 @@ describe('ws-multiplex', () => {
             assert(wsm2["openChannels"][dstChannel].dstChannel == 1, "wsm2 dstChannel not updated after OPEN");
             assert(wsm2["openRemoteChannels"][channel] == dstChannel, "wsm2 remote channel not updated after OPEN");
 
-            stub.restore();
             [channel, dstChannel] = await openChannel();
             assert(channel = 2, `expected local channel 2, got ${channel}`);
             assert(dstChannel == 11, `expected remote channel 11, got ${dstChannel}`);
