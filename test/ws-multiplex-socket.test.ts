@@ -139,7 +139,7 @@ describe('ws-multiplex-socket', () => {
         await new Promise((resolve) => { sock._destroy(null, resolve) });
 
         assert(closeSpy.called, "close on wsm not called");
-        assert(sock.destroyed == true);
+        assert(sock["_destroyed"] == true);
         assert(sock.readyState == "closed");
     });
 

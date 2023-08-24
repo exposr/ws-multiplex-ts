@@ -2,6 +2,7 @@ import { Duplex } from 'node:stream';
 import { WebSocketMultiplex } from './ws-multiplex';
 import { SocketReadyState } from 'node:net';
 import { AddressInfo, SocketConnectOpts } from 'net';
+import assert from 'node:assert';
 
 export type WebSocketMultiplexSocketOptions = {
     /**
@@ -29,10 +30,11 @@ export class WebSocketMultiplexSocket extends Duplex {
     public connecting: boolean;
     public pending: boolean;
     public readyState: SocketReadyState;
-    public destroyed: boolean;
     public bytesWritten?: number;
     public bytesRead?: number;
     public bufferSize: number;
+
+    private _destroyed: boolean;
 
     constructor(wsm: WebSocketMultiplex) {
         super({
@@ -42,7 +44,7 @@ export class WebSocketMultiplexSocket extends Duplex {
         this.wsm = wsm;
         this.channel = 0;
         this.bufferSize = 0;
-        this.destroyed = false;
+        this._destroyed = false;
         this.connecting = false;
         this.pending = true;
         this.readyState = "closed";
@@ -106,7 +108,7 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     private onError(err: Error): void {
-        if (this.destroyed) {
+        if (this._destroyed) {
             return;
         }
         this.emit("error", err);
@@ -154,11 +156,11 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     _destroy(error: Error | null, callback: (error: Error | null) => void): void {
-        if (this.destroyed) {
-            typeof callback === 'function' && callback(error);
+        if (this._destroyed) {
+            callback(error);
             return;
         }
-        this.destroyed = true;
+        this._destroyed = true;
         this.readyState = "closed";
         this.wsm.close(this.channel);
         typeof callback === 'function' && callback(error);
@@ -181,10 +183,12 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     _write(data: Buffer, encoding: BufferEncoding, callback: (error?: Error) => void): void {
+        assert(this._destroyed == false, "_write on destroyed");
         this.wsm.send(<number>this.channel, data, callback);
     }
 
     _writev(chunks: Array<{ chunk: any; encoding: BufferEncoding; }>, callback: (error?: Error) => void): void {
+        assert(this._destroyed == false, "_writev on destroyed");
         const buffers: Array<Buffer> = [];
         for (const item of chunks) {
             buffers.push(item.chunk)
