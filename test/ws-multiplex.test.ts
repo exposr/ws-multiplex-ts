@@ -485,9 +485,14 @@ describe('ws-multiplex', () => {
             const [channel, err] = wsm1.open({}, onOpen, onClose, onError, onData, (stop: boolean) => {});
             assert(err == undefined);
             assert(channel == 1);
+            let info = wsm1.channelInfo(channel);
+            assert(info.state == "opening");
 
             const dstChannel = await open;
             assert(dstChannel == 1);
+
+            info = wsm1.channelInfo(channel);
+            assert(info.state == "open");
         });
 
         it(`open on closed websocket returns error`, async () => {
@@ -630,9 +635,14 @@ describe('ws-multiplex', () => {
             const [channel, err] = wsm1.open({}, onOpen, onClose, onError, onData, onFlow);
             assert(typeof channel == 'number');
             assert(err == undefined);
+            let info = wsm1.channelInfo(channel);
+            assert(info.state == "opening");
 
             const dstChannel = await open;
             assert(typeof dstChannel == 'number');
+
+            info = wsm1.channelInfo(channel);
+            assert(info.state == "open");
 
             assert(wsm1["openChannels"][channel] != undefined, "Channel context not allocated");
             assert(wsm2["openChannels"][dstChannel] != undefined, "Channel context not allocated");
@@ -643,12 +653,15 @@ describe('ws-multiplex', () => {
             const getMsg = socketPair.getMessageSock2();
 
             const [closed, closeErr] = wsm1.close(channel);
-            assert(closed == true);
+            assert(closed == true, `expected true, got ${closed}`);
             assert(closeErr == undefined);
-            assert(wsm1["openChannels"][channel] == undefined, "Channel context still allocated");
+
+            info = wsm1.channelInfo(channel);
+            assert(info.state == "closing", "channel not in closing state");
 
             const closedDstChannel = await close;
             assert(closedDstChannel == dstChannel, `closed channel different than open, ${closedDstChannel != dstChannel}`);
+            assert(wsm1["openChannels"][channel] == undefined, "Channel context still allocated");
 
             const msg = await getMsg;
             assert(closeSpy.called, "handleCloseMessage not called");
@@ -739,7 +752,46 @@ describe('ws-multiplex', () => {
 
             assert(closeSpy.called, "CLOSE handler was not called");
             assert(closeLocalSpy.called, "closeLocalChannel was not called");
-            assert(sendSpy.called == false, "sendMessage was called in response to CLOSE");
+            assert(sendSpy.firstCall.args[0] == 3 /* ACK */, "sendMessage ACK not called as response to CLOSE");
+        });
+
+        it(`ACK is sent in response to a CLOSE message on open channel `, async () => {
+            const open = getOpen();
+            const close = getClose();
+
+            const [channel, err] = wsm1.open({}, onOpen, onClose, onError, onData, onFlow);
+            assert(typeof channel == 'number');
+            assert(err == undefined);
+            const dstChannel = await open;
+
+            const sendSpy = sinon.spy(wsm1, <any>"sendMessage");
+            wsm2.close(dstChannel);
+
+            await close;
+            assert(sendSpy.firstCall.args[0] == 3 /* ACK */, "ACK not sent in response to close");
+        });
+
+        it(`close without ACK closes local channel after timeout`, async () => {
+            const open = getOpen();
+            const close = getClose();
+
+            const [channel, err] = wsm1.open({}, onOpen, onClose, onError, onData, onFlow);
+            assert(typeof channel == 'number');
+            assert(err == undefined);
+
+            await open;
+
+            // Prevent ACK response to the CLOSE message
+            const stub = sinon.stub(wsm2, <any>'handleCloseMessage');
+
+            wsm1.close(channel);
+            let info = wsm1.channelInfo(channel);
+            assert(info.state == "closing");
+
+            await clock.tickAsync(1001);
+            await close;
+            info = wsm1.channelInfo(channel);
+            assert(info?.state == undefined);
         });
 
         it(`channels are closed when object is destroyed`, async () => {

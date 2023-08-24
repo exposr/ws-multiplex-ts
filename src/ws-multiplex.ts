@@ -53,9 +53,9 @@ enum WSMMessageType {
      */
     MESSAGE_OPEN = 2,
     /**
-     * Channel Open acknowledge frame
+     * Channel OPEN/CLOSE acknowledge frame
      *
-     * Accept an OPEN request.
+     * Accept an OPEN or CLOSE request.
      * Set destination channel to the peers source channel number.
      * Set source channel to the selected local channel number.
      */
@@ -104,7 +104,15 @@ type WSMHeader = {
     length: number,
 }
 
+enum WSMChannelState {
+    OPENING = "opening",
+    OPEN = "open",
+    CLOSING = "closing",
+    CLOSED = "closed",
+}
+
 interface WSMChannelContext {
+    state: WSMChannelState,
     dstChannel: number,
     onOpen: (dstChannel: number) => void,
     onClose: (dstChannel: number) => void,
@@ -128,6 +136,7 @@ interface OpenOptions {
 }
 
 type ChannelInfo = {
+    state?: string,
     bytesWritten?: number,
     bytesRead?: number,
     pktWritten?: number,
@@ -258,6 +267,7 @@ export class WebSocketMultiplex extends EventEmitter {
         }
 
         this.openChannels[channel] = {
+            state: WSMChannelState.OPENING,
             dstChannel: 0,
             onOpen,
             onClose,
@@ -287,6 +297,7 @@ export class WebSocketMultiplex extends EventEmitter {
         } else {
             const dstChannel: number = options.dstChannel;
             this.openChannels[channel].dstChannel = dstChannel;
+            this.openChannels[channel].state = WSMChannelState.OPEN;
             this.openRemoteChannels[dstChannel] = channel;
             this.sendMessage(WSMMessageType.MESSAGE_ACK, dstChannel, channel, undefined, (err?: Error) => {
                 if (err) {
@@ -313,13 +324,11 @@ export class WebSocketMultiplex extends EventEmitter {
      */
     public close(channel: number): [boolean, Error?] {
         const context = this.openChannels[channel];
-        if (!context || context?.dstChannel == 0) {
+        if (context?.state != WSMChannelState.OPEN) {
             return [false, new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WSM_CHANNEL_NOT_OPEN)];
         }
 
-        this.closeRemoteChannel(context.dstChannel, channel);
-        this.closeLocalChannel(channel);
-
+        this.closeChannel(channel);
         return [true, undefined];
     }
 
@@ -333,7 +342,7 @@ export class WebSocketMultiplex extends EventEmitter {
      */
     public send(channel: number, data: Buffer | Array<Buffer>, callback?: (err?: Error) => void): boolean {
         const context = this.openChannels[channel];
-        if (!context || context.dstChannel == 0) {
+        if (context?.state != WSMChannelState.OPEN) {
             const err = new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WSM_CHANNEL_NOT_OPEN);
             typeof callback == 'function' && process.nextTick(() => {callback(err)});
             return false;
@@ -355,7 +364,7 @@ export class WebSocketMultiplex extends EventEmitter {
      */
     public flowControl(channel: number, stop: boolean, callback?: (err?: Error) => void): boolean {
         const context = this.openChannels[channel];
-        if (!context || context.dstChannel == 0) {
+        if (context?.state != WSMChannelState.OPEN) {
             const err = new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WSM_CHANNEL_NOT_OPEN);
             typeof callback == 'function' && process.nextTick(() => {callback(err)});
             return false;
@@ -403,6 +412,7 @@ export class WebSocketMultiplex extends EventEmitter {
             return {};
         }
         return {
+            state: context.state,
             bytesWritten: context.bytesWritten,
             bytesRead: context.bytesRead,
             pktWritten: context.pktWritten,
@@ -621,6 +631,17 @@ export class WebSocketMultiplex extends EventEmitter {
         return [channel, undefined];
     }
 
+    private closeChannel(channel: number): void {
+        const context = this.openChannels[channel];
+
+        context.state = WSMChannelState.CLOSING;
+        this.closeRemoteChannel(context.dstChannel, channel);
+
+        context.ackTimeout = setTimeout(() => {
+            this.closeLocalChannel(channel);
+        }, 1000);
+    }
+
     private closeRemoteChannel(dstChannel: number, srcChannel?: number, err?: Error, callback?: (err?: Error) => void): boolean {
         let errorBuffer = undefined;
         if (err instanceof WebSocketMultiplexError) {
@@ -632,6 +653,7 @@ export class WebSocketMultiplex extends EventEmitter {
         return this.sendMessage(WSMMessageType.MESSAGE_CLOSE, dstChannel, srcChannel ?? 0, errorBuffer, (sendErr) => {
             delete this.openRemoteChannels[dstChannel];
             if (srcChannel && this.openChannels[srcChannel]) {
+                this.openChannels[srcChannel].state = WSMChannelState.CLOSING;
                 this.openChannels[srcChannel].dstChannel = 0;
             }
 
@@ -642,6 +664,7 @@ export class WebSocketMultiplex extends EventEmitter {
     private closeLocalChannel(channel: number, err?: Error): void {
         const context = this.openChannels[channel];
         if (context) {
+            context.state = WSMChannelState.CLOSED;
             clearTimeout(context.ackTimeout);
             if (err) {
                 context.onError(err);
@@ -652,6 +675,7 @@ export class WebSocketMultiplex extends EventEmitter {
             }
         }
         delete this.openChannels[channel];
+        assert(this.openChannels[channel] == undefined);
     }
 
     private handleAckMessage(WSMm: WSMMessage): void {
@@ -661,11 +685,17 @@ export class WebSocketMultiplex extends EventEmitter {
             return;
         }
 
-        context.dstChannel = WSMm.header.srcChannel;
-        this.openRemoteChannels[WSMm.header.srcChannel] = WSMm.header.dstChannel;
         clearTimeout(context.ackTimeout);
         delete context.ackTimeout;
-        context.onOpen(WSMm.header.srcChannel);
+
+        if (context.state == WSMChannelState.OPENING) {
+            context.state = WSMChannelState.OPEN;
+            context.dstChannel = WSMm.header.srcChannel;
+            this.openRemoteChannels[WSMm.header.srcChannel] = WSMm.header.dstChannel;
+            context.onOpen(WSMm.header.srcChannel);
+        } else if (context.state == WSMChannelState.CLOSING) {
+            this.closeLocalChannel(WSMm.header.dstChannel);
+        }
     }
 
     private handleOpenMessage(WSMm: WSMMessage): void {
@@ -695,7 +725,7 @@ export class WebSocketMultiplex extends EventEmitter {
         }
 
         let err;
-        if (context?.ackTimeout) {
+        if (context?.state == WSMChannelState.OPENING) {
             clearTimeout(context.ackTimeout);
             delete context.ackTimeout;
 
@@ -707,6 +737,10 @@ export class WebSocketMultiplex extends EventEmitter {
                 closeErr.message);
             err.remote = closeErr;
         }
+
+        if (WSMm.header.srcChannel != 0) {
+            this.sendMessage(WSMMessageType.MESSAGE_ACK, WSMm.header.srcChannel, WSMm.header.dstChannel);
+        }
         this.closeLocalChannel(WSMm.header.dstChannel, err);
     }
 
@@ -717,9 +751,10 @@ export class WebSocketMultiplex extends EventEmitter {
                 new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WSM_CHANNEL_NOT_OPEN));
             return;
         } else if (this.openRemoteChannels[WSMm.header.srcChannel] != context.dstChannel) {
+            const remote = this.openRemoteChannels[WSMm.header.srcChannel];
             const err =
                 new WebSocketMultiplexError(WebSocketMultiplexErrorCode.ERR_WSM_CHANNEL_MISMATCH,
-                    `src=${WSMm.header.srcChannel} dst=${context.dstChannel}`);
+                    `remote_src=${WSMm.header.srcChannel} src=${remote} dst=${context.dstChannel}`);
 
             this.closeRemoteChannel(context.dstChannel, WSMm.header.dstChannel, err);
             this.closeLocalChannel(WSMm.header.dstChannel, err);
