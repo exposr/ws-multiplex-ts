@@ -87,7 +87,6 @@ export class WebSocketMultiplexSocket extends Duplex {
         this.readBuffer.push(data);
         this.readBufferSize += data.length;
         if (this.wantData) {
-            this.wantData = false;
             this.flush();
         }
         if (this.readBufferSize > this.readableHighWaterMark) {
@@ -204,6 +203,7 @@ export class WebSocketMultiplexSocket extends Duplex {
             }
             this.readBufferSize -= data.length;
             const res = this.push(data);
+            this.wantData = res;
             if (!res) {
                 break;
             }
@@ -211,17 +211,12 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     _read(size: number): void {
+        this.wantData = true;
         if (this.readBufferSize > 0) {
             this.flush();
-        } else {
-            this.wantData = true;
         }
 
-        this.wsm.flowControl(this.channel, false, (err) => {
-            if (err) {
-                this.emit('error', err);
-            }
-        });
+        this.wsm.flowControl(this.channel, false);
     }
 
     public setEncoding(encoding: BufferEncoding): this {
