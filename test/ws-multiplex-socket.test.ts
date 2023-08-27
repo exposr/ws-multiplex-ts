@@ -441,6 +441,32 @@ describe('ws-multiplex-socket', () => {
         assert(uncorkSpy.called == true, "channel not resumed");
     });
 
+    it(`timeout is emitted on no activity if set`, async () => {
+        const [sock1, sock2] = await connectPair();
+        const emitSpy = sinon.spy(sock1, "emit");
+
+        sock1.setTimeout(1000);
+        const timeout = new Promise((resolve) => sock1.once('timeout', () => {
+            resolve("timeout");
+        }));
+        await clock.tickAsync(1001);
+        const res = await timeout;
+        assert(res == "timeout", "timeout not emitted");
+        assert(emitSpy.called == true, "emit not called");
+    });
+
+    it(`timeout is not emitted during activity`, async () => {
+
+        const [sock1, sock2] = await connectPair();
+        sock1.setTimeout(1000);
+
+        const emitSpy = sinon.spy(sock1, "emit");
+        await clock.tickAsync(500);
+        sock1.write("hello");
+        await clock.tickAsync(501);
+        assert(emitSpy.called == false, "emit called");
+    });
+
     describe(`complex use cases`, () => {
         const createEchoHttpServer = async (port = 20000) => {
             const requestHandler = (request: http.IncomingMessage, response: http.ServerResponse) => {

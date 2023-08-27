@@ -33,6 +33,8 @@ export class WebSocketMultiplexSocket extends Duplex {
     public bytesWritten?: number;
     public bytesRead?: number;
     public bufferSize: number;
+    public timeout?: number;
+    private timeoutTimer?: NodeJS.Timeout;
 
     private _destroyed: boolean;
 
@@ -76,6 +78,7 @@ export class WebSocketMultiplexSocket extends Duplex {
         typeof this.constructCallback == 'function' && this.constructCallback();
         this.emit('connect');
         this.emit('ready');
+        this.resetTimeout();
     }
 
     private onClose(dstChannel: number): void {
@@ -97,6 +100,7 @@ export class WebSocketMultiplexSocket extends Duplex {
                 }
             });
         }
+        this.resetTimeout();
     }
 
     private onFlowControl(stop: boolean): void {
@@ -160,6 +164,7 @@ export class WebSocketMultiplexSocket extends Duplex {
             callback(error);
             return;
         }
+        clearTimeout(this.timeoutTimer);
         this._destroyed = true;
         this.readyState = "closed";
         this.wsm.close(this.channel);
@@ -185,6 +190,7 @@ export class WebSocketMultiplexSocket extends Duplex {
     _write(data: Buffer, encoding: BufferEncoding, callback: (error?: Error) => void): void {
         assert(this._destroyed == false, "_write on destroyed");
         this.wsm.send(<number>this.channel, data, callback);
+        this.resetTimeout();
     }
 
     _writev(chunks: Array<{ chunk: any; encoding: BufferEncoding; }>, callback: (error?: Error) => void): void {
@@ -194,6 +200,7 @@ export class WebSocketMultiplexSocket extends Duplex {
             buffers.push(item.chunk)
         }
         this.wsm.send(<number>this.channel, buffers, callback);
+        this.resetTimeout();
     }
 
     private flush(): void {
@@ -233,7 +240,21 @@ export class WebSocketMultiplexSocket extends Duplex {
         return this;
     }
 
-    public setTimeout(timeout: number, callback: () => void): this {
+    private resetTimeout(): void {
+        clearTimeout(this.timeoutTimer);
+        if (this.timeout != undefined && this.timeout > 0) {
+            this.timeoutTimer = setTimeout(() => {
+                this.emit('timeout');
+            }, this.timeout);
+        }
+    }
+
+    public setTimeout(timeout: number, callback?: () => void | undefined): this {
+        this.timeout = timeout;
+        typeof callback == 'function' && this.once('timeout', callback);
+        if (this.readyState == 'open') {
+            this.resetTimeout();
+        }
         return this;
     }
 }
