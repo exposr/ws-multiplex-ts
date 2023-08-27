@@ -38,7 +38,8 @@ export class WebSocketMultiplexSocket extends Duplex {
 
     constructor(wsm: WebSocketMultiplex) {
         super({
-            defaultEncoding: 'binary'
+            defaultEncoding: 'binary',
+            allowHalfOpen: false,
         });
 
         this.wsm = wsm;
