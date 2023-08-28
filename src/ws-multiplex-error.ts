@@ -74,21 +74,30 @@ export class WebSocketMultiplexError extends Error {
     public remote?: Error; 
     public readonly code: string;
 
-    constructor(code: WebSocketMultiplexErrorCode, message?: string) {
-        let msg: string = code + ": " + WebSocketMultiplexErrorMessage[code];
+    constructor(code: WebSocketMultiplexErrorCode | string, message?: string) {
+        const code_str = typeof code == 'string' ? code : WebSocketMultiplexErrorMessage[<WebSocketMultiplexErrorCode>code];
+        let msg: string = code + ": " + code_str;
         if (message) {
             msg += ` (${message})`;
         }
         super(msg);
-        this.code = code;
+        this.code = code_str;
     }
 
-    static from(str: string): WebSocketMultiplexError | undefined {
-        try {
-            const code = str as keyof typeof WebSocketMultiplexErrorCode;
-            return new WebSocketMultiplexError(WebSocketMultiplexErrorCode[code]);
-        } catch (e) {
-            return undefined;
+    static from(err: string | WebSocketMultiplexError, code?: string): WebSocketMultiplexError | undefined {
+        if (typeof err == 'string') {
+            try {
+                const errorCode = err as keyof typeof WebSocketMultiplexErrorCode;
+                return new WebSocketMultiplexError(WebSocketMultiplexErrorCode[errorCode]);
+            } catch (e) {
+                return undefined;
+            }
+        } else {
+            try {
+                return new WebSocketMultiplexError(code || err.code, err.message);
+            } catch (e) {
+                return undefined;
+            }
         }
     }
 }

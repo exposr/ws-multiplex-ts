@@ -3,10 +3,10 @@ import { assert } from "chai";
 import { wsSocketPair, wsmPair } from './test-utils';
 import { WebSocketMultiplex } from '../src/ws-multiplex';
 import { WebSocketMultiplexSocket } from '../src/ws-multiplex-socket';
-import { WebSocketMultiplexError, WebSocketMultiplexErrorCode } from '../src/ws-multiplex-error';
+import { WebSocketMultiplexError } from '../src/ws-multiplex-error';
 import * as http from 'node:http'
 import * as net from 'node:net';
-import { Duplex, PassThrough } from 'node:stream';
+import { Duplex } from 'node:stream';
 
 describe('ws-multiplex-socket', () => {
     let clock: sinon.SinonFakeTimers;
@@ -102,7 +102,6 @@ describe('ws-multiplex-socket', () => {
         assert(err?.message == "open-error")
     });
 
-
     it(`can connect using sock.connect`, async () => {
         const sock = new WebSocketMultiplexSocket(wsm1);
         await new Promise((resolve) => {
@@ -123,7 +122,7 @@ describe('ws-multiplex-socket', () => {
         assert(emitSpy.called);
         const err = await errorEvent;
         assert(err instanceof WebSocketMultiplexError);
-        assert(err.code == WebSocketMultiplexErrorCode.ERR_WSM_OPEN_CHANNEL_TIMEOUT);
+        assert(err.code == 'ERR_SOCKET_CONNECTION_TIMEOUT');
     });
 
     it(`connected socket can be destroyed by _destroy()`, async () => {

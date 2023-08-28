@@ -3,6 +3,21 @@ import { WebSocketMultiplex } from './ws-multiplex';
 import { SocketReadyState } from 'node:net';
 import { AddressInfo, SocketConnectOpts } from 'net';
 import assert from 'node:assert';
+import { WebSocketMultiplexError } from '.';
+
+const WSMErrorMapper: { [key: string]: string } = {
+    'ERR_WS_PING_TIMEOUT': "ERR_WS_PING_TIMEOUT",
+    'ERR_WS_SOCKET_CLOSED_UNEXPECTEDLY': "ERR_WS_SOCKET_CLOSED_UNEXPECTEDLY",
+    'ERR_WS_SOCKED_CLOSED': "ERR_WS_SOCKED_CLOSED",
+    'ERR_WSM_UNSUPPORTED_PROTOCOL_VERSION': "ERR_WSM_UNSUPPORTED_PROTOCOL_VERSION",
+    'ERR_WSM_NO_CHANNELS': "EMFILE",
+    'ERR_WSM_OPEN_CHANNEL_TIMEOUT': "ERR_SOCKET_CONNECTION_TIMEOUT",
+    'ERR_WSM_OPEN_CHANNEL_REJECTED': "ECONNREFUSED",
+    'ERR_WSM_CHANNEL_NOT_OPEN': "ERR_SOCKET_CLOSED",
+    'ERR_WSM_CHANNEL_CLOSED_BY_PEER': "ECONNRESET",
+    'ERR_WSM_OPEN_CHANNEL_REUSE': "EADDRINUSE",
+    'ERR_WSM_CHANNEL_MISMATCH': "ERR_WSM_CHANNEL_MISMATCH",
+};
 
 export type WebSocketMultiplexSocketOptions = {
     /**
@@ -115,7 +130,9 @@ export class WebSocketMultiplexSocket extends Duplex {
         if (this._destroyed) {
             return;
         }
-        this.emit("error", err);
+
+        const wsmErr: WebSocketMultiplexError = <WebSocketMultiplexError>err;
+        this.emit("error", WebSocketMultiplexError.from(wsmErr, WSMErrorMapper[wsmErr.code]));
     }
 
     public connect(options: WebSocketMultiplexSocketOptions, connectCallback?: () => void): this;
