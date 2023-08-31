@@ -221,17 +221,21 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     private flush(): void {
-        while (true) {
-            const data = this.readBuffer.shift();
-            if (!data) {
-                break;
+        try {
+            while (true) {
+                const data = this.readBuffer.shift();
+                if (!data) {
+                    break;
+                }
+                this.readBufferSize -= data.length;
+                const res = this.push(data);
+                this.wantData = res;
+                if (!res) {
+                    break;
+                }
             }
-            this.readBufferSize -= data.length;
-            const res = this.push(data);
-            this.wantData = res;
-            if (!res) {
-                break;
-            }
+        } catch (err: any) {
+            this.destroy(err);
         }
     }
 
