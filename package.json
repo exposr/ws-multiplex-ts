@@ -1,7 +1,7 @@
 {
     "name": "@exposr/ws-multiplex",
     "description": "Websocket channel multiplexer",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "author": "Fredrik Lindberg <fli@fli.dev>",
     "license": "MIT",
     "type": "commonjs",
