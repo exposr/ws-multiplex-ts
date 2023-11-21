@@ -20,7 +20,7 @@
         "url": "https://github.com/exposr/ws-multiplex-ts.git"
     },
     "dependencies": {
-        "bufferutil": "^4.0.7",
+        "bufferutil": "^4.0.8",
         "ws": "^8.13.0"
     },
     "devDependencies": {
