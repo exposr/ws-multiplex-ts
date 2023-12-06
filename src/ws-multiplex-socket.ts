@@ -42,6 +42,9 @@ export class WebSocketMultiplexSocket extends Duplex {
     private readBufferSize: number;
     private wantData: boolean = false;
 
+    private writeBuffer: Array<{ channel: number, data: Buffer | Array<Buffer>, callback: (error?: Error) => void }>;
+    private writer: (channel: number, data: Buffer | Array<Buffer>, callback: (error?: Error) => void) => void;
+
     public connecting: boolean;
     public pending: boolean;
     public readyState: SocketReadyState;
@@ -69,6 +72,8 @@ export class WebSocketMultiplexSocket extends Duplex {
         this.constructCallback = undefined;
         this.readBuffer = [];
         this.readBufferSize = 0;
+        this.writeBuffer = [];
+        this.writer = this.bufferedWrite;
 
         Object.defineProperty(this, "bytesWritten", {
             get() {
@@ -90,7 +95,11 @@ export class WebSocketMultiplexSocket extends Duplex {
         this.pending = false;
         this.readyState = "open";
 
+        this.flushWriteBuffer();
+        this.writer = this.wsm.send.bind(this.wsm);
+
         typeof this.constructCallback == 'function' && this.constructCallback();
+
         this.emit('connect');
         this.emit('ready');
         this.resetTimeout();
@@ -204,9 +213,23 @@ export class WebSocketMultiplexSocket extends Duplex {
         return this;
     }
 
+    private bufferedWrite(channel: number, data: Buffer | Array<Buffer>, callback: (error?: Error) => void): void {
+        this.writeBuffer.push({channel, data, callback});
+    }
+
+    private flushWriteBuffer(): void {
+        while (true) {
+            const buffer = this.writeBuffer.shift();
+            if (!buffer) {
+                break;
+            }
+            this.wsm.send(buffer.channel, buffer.data, buffer.callback);
+        }
+    }
+
     _write(data: Buffer, encoding: BufferEncoding, callback: (error?: Error) => void): void {
         assert(this._destroyed == false, "_write on destroyed");
-        this.wsm.send(<number>this.channel, data, callback);
+        this.writer(this.channel, data, callback);
         this.resetTimeout();
     }
 
@@ -216,7 +239,7 @@ export class WebSocketMultiplexSocket extends Duplex {
         for (const item of chunks) {
             buffers.push(item.chunk)
         }
-        this.wsm.send(<number>this.channel, buffers, callback);
+        this.writer(this.channel, buffers, callback);
         this.resetTimeout();
     }
 

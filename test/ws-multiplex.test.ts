@@ -6,7 +6,6 @@ import { WebSocketMultiplex } from '../src/ws-multiplex'
 import { WebSocketMultiplexError, WebSocketMultiplexErrorCode } from '../src/ws-multiplex-error';
 import { WebSocketMultiplexSocket } from '../src/ws-multiplex-socket';
 import EventEmitter from 'events';
-import { setTimeout } from 'timers/promises';
 
 describe('ws-multiplex', () => {
 
