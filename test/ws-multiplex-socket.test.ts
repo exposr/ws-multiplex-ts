@@ -533,8 +533,11 @@ describe('ws-multiplex-socket', () => {
                 .listen(30000);
 
             // GET request
-            let res = await fetch("http://localhost:30000")
-            assert(res.status == 200, `Did not get status 200, got ${res.status}`);
+            let res;
+            for(let i = 0; i < 1000; i++) {
+                let res = await fetch("http://localhost:30000")
+                assert(res.status == 200, `Did not get status 200, got ${res.status}`);
+            }
 
             // POST request
             res = await fetch("http://localhost:30000", {
@@ -597,7 +600,10 @@ describe('ws-multiplex-socket', () => {
                 }
             }
 
-            const agent = new CustomAgent();
+            const agent = new CustomAgent({
+                keepAlive: true,
+                timeout: 1000,
+            });
 
             const httpServer = http.createServer((request: http.IncomingMessage, response: http.ServerResponse) => {
                 const headers = { ...request.headers };
@@ -630,6 +636,14 @@ describe('ws-multiplex-socket', () => {
             assert(res.status == 200, `Did not get status 200, got ${res.status}`);
             let data = await res.text();
             assert(data == '{"foo":"bar"}', `Did not get expected response, got ${data}`);
+
+            for (const [key, value] of Object.entries(agent.freeSockets)) {
+                if (!value?.length) {
+                    continue
+                }
+                const sock = value[0] as WebSocketMultiplexSocket;
+                assert(sock.listenerCount('timeout') == 0, "timeout listener not removed");
+            }
 
             httpServer.closeAllConnections();
             await new Promise((resolve) => { httpServer.close(resolve); });

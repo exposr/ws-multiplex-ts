@@ -34,6 +34,7 @@ export type WebSocketMultiplexSocketOptions = {
 }
 
 export class WebSocketMultiplexSocket extends Duplex {
+    private _ref: number;
     private wsm: WebSocketMultiplex;
     private channel: number;
     private dstChannel?: number;
@@ -62,6 +63,7 @@ export class WebSocketMultiplexSocket extends Duplex {
             allowHalfOpen: false,
         });
 
+        this._ref = 1;
         this.wsm = wsm;
         this.channel = 0;
         this.bufferSize = 0;
@@ -206,10 +208,15 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     public ref(): this {
+        this._ref++;
         return this;
     }
 
     public unref(): this {
+        this._ref--;
+        if (this._ref == 0) {
+            this.removeAllListeners('timeout');
+        }
         return this;
     }
 
@@ -277,6 +284,9 @@ export class WebSocketMultiplexSocket extends Duplex {
     }
 
     public setKeepAlive(enable: boolean, initialDelay: number): this {
+        if (enable) {
+            this.setTimeout(0);
+        }
         return this;
     }
 
